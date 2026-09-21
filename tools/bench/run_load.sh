@@ -48,7 +48,7 @@ touch "${SENTINEL}"
 # Sample only this project's containers - another Compose stack on the same
 # machine would otherwise land in the results. The sampler stops when the
 # sentinel file disappears, which avoids signalling a background process.
-CONTAINERS="$(cd "${ROOT}" && docker compose ps -q | tr '\n' ' ')"
+CONTAINERS="$(cd "${ROOT}" && docker compose --profile push ps -q | tr '\n' ' ')"
 if [ -z "${CONTAINERS// /}" ]; then
   echo "no containers running; start the stack with 'make up-detached'" >&2
   exit 1

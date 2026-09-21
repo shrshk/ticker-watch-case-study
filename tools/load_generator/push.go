@@ -24,6 +24,11 @@ type pushCounters struct {
 	subscribed   atomic.Int64
 	publications atomic.Int64
 	errors       atomic.Int64
+
+	// Scenario counters.
+	stormReconnects   atomic.Int64 // clients that completed disconnect+reconnect in the storm
+	slowDisconnects   atomic.Int64 // slow readers the server disconnected (queue overflow)
+	celebrityMessages atomic.Int64 // publications received on the celebrity channel
 }
 
 // runPush opens one real Centrifugo connection per client, subscribes it to
@@ -43,6 +48,9 @@ func runPush(cfg config) {
 	pctr := &pushCounters{}
 	requestLatency := newSamples(cfg.clients * 2)
 	updateLatency := newSamples(cfg.clients * 64)
+	stormSnapshotLatency := newSamples(cfg.clients) // snapshot latency during the reconnect storm only
+	celebrityLatency := newSamples(cfg.clients * 16)
+	var stormStarted atomic.Bool
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.duration)
 	defer cancel()
@@ -58,12 +66,13 @@ func runPush(cfg config) {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			pushClient(ctx, cfg, wsURL, httpClient, n, ctr, pctr, requestLatency, updateLatency)
+			pushClient(ctx, cfg, wsURL, httpClient, n, ctr, pctr,
+				requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency, &stormStarted)
 		}(i)
 	}
 	wg.Wait()
 
-	reportPush(cfg, ctr, pctr, requestLatency, updateLatency, time.Since(started))
+	reportPush(cfg, ctr, pctr, requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency, time.Since(started))
 }
 
 func pushClient(
@@ -74,9 +83,12 @@ func pushClient(
 	n int,
 	ctr *counters,
 	pctr *pushCounters,
-	requestLatency, updateLatency *samples,
+	requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency *samples,
+	stormStarted *atomic.Bool,
 ) {
 	rng := rand.New(rand.NewSource(int64(n)*7919 + 13))
+	inStorm := cfg.stormAt > 0 && rng.Float64() < cfg.stormFraction
+	isSlow := cfg.slowFraction > 0 && rng.Float64() < cfg.slowFraction
 	span := cfg.userIDMax - cfg.userIDMin + 1
 	if cfg.logicalUsers < span {
 		span = cfg.logicalUsers
@@ -119,46 +131,52 @@ func pushClient(
 	}
 
 	// Snapshot: one GET /watchlist per connection. This is the only HTTP
-	// request a push client makes after login.
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.apiBase+"/watchlist", nil)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-	t0 := time.Now()
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		if ctx.Err() == nil {
-			ctr.errors.Add(1)
-		}
-		return
-	}
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	requestLatency.add(time.Since(t0))
-	ctr.requests.Add(1)
-	ctr.bytes.Add(int64(len(body)))
-	if resp.StatusCode != http.StatusOK {
-		ctr.httpErrors.Add(1)
-		return
-	}
-	var snapshot watchlistResponse
-	if err := json.Unmarshal(body, &snapshot); err != nil {
-		ctr.errors.Add(1)
-		return
-	}
-
-	mu.Lock()
-	for _, it := range snapshot.Items {
-		lastSeen[it.Ticker] = it.EffectiveAt
-	}
-	mu.Unlock()
-
-	// Subscribe to one channel per watched ticker. Never one per user.
-	for _, it := range snapshot.Items {
-		sub, err := client.NewSubscription("ticker:" + it.Ticker)
+	// request a push client makes after login - and again after every
+	// reconnect, which is what makes a reconnect storm a snapshot burst.
+	snapshot := func(during *samples) (*watchlistResponse, bool) {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, cfg.apiBase+"/watchlist", nil)
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+		t0 := time.Now()
+		resp, err := httpClient.Do(req)
 		if err != nil {
-			pctr.errors.Add(1)
-			continue
+			if ctx.Err() == nil {
+				ctr.errors.Add(1)
+			}
+			return nil, false
 		}
-		sub.OnPublication(func(e centrifuge.PublicationEvent) {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		elapsed := time.Since(t0)
+		requestLatency.add(elapsed)
+		if during != nil {
+			during.add(elapsed)
+		}
+		ctr.requests.Add(1)
+		ctr.bytes.Add(int64(len(body)))
+		if resp.StatusCode != http.StatusOK {
+			ctr.httpErrors.Add(1)
+			return nil, false
+		}
+		var out watchlistResponse
+		if err := json.Unmarshal(body, &out); err != nil {
+			ctr.errors.Add(1)
+			return nil, false
+		}
+		mu.Lock()
+		for _, it := range out.Items {
+			lastSeen[it.Ticker] = it.EffectiveAt
+		}
+		mu.Unlock()
+		return &out, true
+	}
+
+	snap, ok := snapshot(nil)
+	if !ok {
+		return
+	}
+
+	onPublication := func(isCelebrity bool) func(centrifuge.PublicationEvent) {
+		return func(e centrifuge.PublicationEvent) {
 			var ev struct {
 				Ticker      string `json:"ticker"`
 				EffectiveAt string `json:"effective_at"`
@@ -168,6 +186,18 @@ func pushClient(
 			}
 			observed := time.Now()
 			pctr.publications.Add(1)
+			if isCelebrity {
+				pctr.celebrityMessages.Add(1)
+			}
+
+			// A slow consumer blocks in its handler, which blocks this
+			// client's read loop. The server's outbound queue for it grows
+			// until client.queue_max_size, then the server disconnects it.
+			// That is Centrifugo's actual mechanism - there is no per-client
+			// conflation - so the number to report is the disconnect count.
+			if isSlow {
+				time.Sleep(cfg.slowDelay)
+			}
 
 			mu.Lock()
 			prev, known := lastSeen[ev.Ticker]
@@ -179,15 +209,77 @@ func pushClient(
 			mu.Unlock()
 
 			if eff, err := time.Parse(time.RFC3339Nano, ev.EffectiveAt); err == nil {
-				updateLatency.addMillis(float64(observed.Sub(eff).Nanoseconds()) / 1e6)
+				ms := float64(observed.Sub(eff).Nanoseconds()) / 1e6
+				updateLatency.addMillis(ms)
+				if isCelebrity {
+					celebrityLatency.addMillis(ms)
+				}
 				ctr.priceEvents.Add(1)
 			}
-		})
+		}
+	}
+
+	// Subscribe to one channel per watched ticker. Never one per user.
+	tickers := make([]string, 0, len(snap.Items)+1)
+	for _, it := range snap.Items {
+		tickers = append(tickers, it.Ticker)
+	}
+	// Scenario F: everyone also watches the celebrity, so its channel carries
+	// one subscriber per connection.
+	if cfg.celebrity != "" {
+		seen := false
+		for _, t := range tickers {
+			if t == cfg.celebrity {
+				seen = true
+			}
+		}
+		if !seen {
+			tickers = append(tickers, cfg.celebrity)
+		}
+	}
+	for _, t := range tickers {
+		sub, err := client.NewSubscription("ticker:" + t)
+		if err != nil {
+			pctr.errors.Add(1)
+			continue
+		}
+		sub.OnPublication(onPublication(t == cfg.celebrity))
 		if err := sub.Subscribe(); err != nil {
 			pctr.errors.Add(1)
 			continue
 		}
 		pctr.subscribed.Add(1)
+	}
+
+	// Slow readers disconnected by the server show up here; count them
+	// separately from ordinary disconnects.
+	if isSlow {
+		client.OnDisconnected(func(e centrifuge.DisconnectedEvent) {
+			pctr.disconnects.Add(1)
+			if e.Code >= 3000 { // server-initiated disconnect codes
+				pctr.slowDisconnects.Add(1)
+			}
+		})
+	}
+
+	// Scenario D: at stormAt, this client drops and comes straight back. The
+	// reconnect re-runs the snapshot - subscribe first, then GET /watchlist -
+	// which is the burst the snapshot path has to absorb.
+	if inStorm {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(cfg.stormAt):
+		}
+		stormStarted.Store(true)
+		client.Disconnect()
+		if err := client.Connect(); err != nil {
+			pctr.errors.Add(1)
+			return
+		}
+		if _, ok := snapshot(stormSnapshotLatency); ok {
+			pctr.stormReconnects.Add(1)
+		}
 	}
 
 	<-ctx.Done()
@@ -211,9 +303,11 @@ func pushProgress(ctx context.Context, ctr *counters, pctr *pushCounters, starte
 	}
 }
 
-func reportPush(cfg config, ctr *counters, pctr *pushCounters, requestLatency, updateLatency *samples, elapsed time.Duration) {
+func reportPush(cfg config, ctr *counters, pctr *pushCounters, requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency *samples, elapsed time.Duration) {
 	req := requestLatency.summarize()
 	upd := updateLatency.summarize()
+	storm := stormSnapshotLatency.summarize()
+	celeb := celebrityLatency.summarize()
 	seconds := elapsed.Seconds()
 
 	fmt.Printf("\n%s\n", divider)
@@ -238,6 +332,18 @@ func reportPush(cfg config, ctr *counters, pctr *pushCounters, requestLatency, u
 	}
 	fmt.Printf("%s\n", divider)
 	fmt.Printf("publications recv    %d   (%.0f/s across all clients)\n", pctr.publications.Load(), float64(pctr.publications.Load())/seconds)
+	if cfg.stormAt > 0 {
+		fmt.Printf("storm                %d of %d clients reconnected at +%s; snapshot latency during storm p50 %.1fms p95 %.1fms p99 %.1fms (n=%d)\n",
+			pctr.stormReconnects.Load(), int(float64(cfg.clients)*cfg.stormFraction), cfg.stormAt, storm.P50, storm.P95, storm.P99, storm.N)
+	}
+	if cfg.slowFraction > 0 {
+		fmt.Printf("slow consumers       %.0f%% of clients block %s per message; server disconnected %d of them\n",
+			cfg.slowFraction*100, cfg.slowDelay, pctr.slowDisconnects.Load())
+	}
+	if cfg.celebrity != "" {
+		fmt.Printf("celebrity %-10s %d messages; update latency p50 %.0fms p95 %.0fms p99 %.0fms (n=%d)\n",
+			cfg.celebrity, pctr.celebrityMessages.Load(), celeb.P50, celeb.P95, celeb.P99, celeb.N)
+	}
 	fmt.Printf("bytes on the wire    %.1f KB of snapshots; realtime frames not counted here (see Centrifugo metrics)\n", float64(ctr.bytes.Load())/1024)
 	fmt.Printf("%s\n", divider)
 	_ = os.Stdout

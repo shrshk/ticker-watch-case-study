@@ -40,6 +40,13 @@ type config struct {
 	rampUp       time.Duration
 	userIDMin    int
 	userIDMax    int
+
+	// Push-only scenario knobs. Zero values mean "off".
+	celebrity     string        // every client also subscribes to this ticker (Scenario F)
+	stormAt       time.Duration // at this offset, storm clients disconnect and reconnect (Scenario D)
+	stormFraction float64       // share of clients that take part in the storm
+	slowFraction  float64       // share of clients that read slowly (Scenario E)
+	slowDelay     time.Duration // how long a slow client blocks per publication
 }
 
 type watchlistResponse struct {
@@ -99,6 +106,11 @@ func parseFlags() config {
 		"lowest seeded user id to impersonate (required; the runner reads it from the DB)")
 	flag.IntVar(&cfg.userIDMax, "user-id-max", 0,
 		"highest seeded user id to impersonate (required)")
+	flag.StringVar(&cfg.celebrity, "celebrity", "", "push: every client also subscribes to this ticker")
+	flag.DurationVar(&cfg.stormAt, "storm-at", 0, "push: disconnect+reconnect a fraction of clients at this offset")
+	flag.Float64Var(&cfg.stormFraction, "storm-fraction", 0.5, "push: share of clients in the storm")
+	flag.Float64Var(&cfg.slowFraction, "slow-fraction", 0, "push: share of clients that read slowly")
+	flag.DurationVar(&cfg.slowDelay, "slow-delay", 2*time.Second, "push: block per publication for slow clients")
 	flag.Parse()
 	if cfg.userIDMin <= 0 || cfg.userIDMax < cfg.userIDMin {
 		log.Fatal("-user-id-min and -user-id-max are required and must describe a real range.\n" +
