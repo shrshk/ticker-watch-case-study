@@ -77,7 +77,7 @@ func main() {
 	case "poll":
 		runPoll(cfg)
 	case "push":
-		log.Fatal("push transport arrives in phase 3")
+		runPush(cfg)
 	default:
 		log.Fatalf("unknown transport %q", cfg.transport)
 	}

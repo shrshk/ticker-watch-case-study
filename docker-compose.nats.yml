@@ -1,0 +1,18 @@
+# Broker override: `make up TRANSPORT=push BROKER=nats`.
+#
+# Swaps Centrifugo's engine for a NATS broker and adds the NATS container. No
+# application code changes - the price service publishes through Centrifugo's
+# HTTP API either way. Redis keeps only the price cache; fanout moves to NATS.
+services:
+  centrifugo:
+    volumes:
+      - ./centrifugo/config.nats.json:/centrifugo/config.json:ro
+    depends_on:
+      nats: { condition: service_started }
+
+  nats:
+    image: nats:2-alpine
+    profiles: ["push"]
+    command: ["-js=false", "-m", "8222"]
+    ports:
+      - "8222:8222"

@@ -11,7 +11,7 @@ import redis.exceptions
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from watchlist.api.routers import auth, securities, watchlist
+from watchlist.api.routers import auth, realtime, securities, watchlist
 from watchlist.modules.prices import prices_controller
 from watchlist.shared import cache, db
 from watchlist.shared.logging import configure_logging
@@ -43,6 +43,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(securities.router)
 app.include_router(watchlist.router)
+app.include_router(realtime.router)
 
 
 @app.get("/health", tags=["ops"])

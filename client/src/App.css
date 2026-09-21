@@ -144,6 +144,11 @@ input:focus {
   border-color: var(--warn);
 }
 
+.pill.status-reconnecting {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
 .pill.status-offline {
   color: var(--danger);
   border-color: var(--danger);

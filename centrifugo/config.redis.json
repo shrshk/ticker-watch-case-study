@@ -1,0 +1,29 @@
+{
+  "http_server": { "port": 8000 },
+  "log": { "level": "info" },
+
+  "engine": {
+    "type": "redis",
+    "redis": { "address": ["redis://redis:6379"], "db": 1, "prefix": "centrifugo" }
+  },
+
+  "client": {
+    "allowed_origins": ["http://localhost:3000", "http://127.0.0.1:3000"],
+    "queue_max_size": 1048576
+  },
+
+  "channel": {
+    "namespaces": [
+      {
+        "name": "ticker",
+        "allow_subscribe_for_client": true,
+        "allow_publish_for_client": false,
+        "history_size": 0,
+        "history_ttl": "0s"
+      }
+    ]
+  },
+
+  "health": { "enabled": true },
+  "prometheus": { "enabled": true }
+}

@@ -131,6 +131,12 @@ not the one the results claimed.
   when a run produces no `request rate` line.
 - **The pipelined cache write queued nothing** (M4 above). Caught by the test
   written for it, before the stack was restarted onto it.
+- **A stale anonymous volume hid a new dependency** (phase 3). `centrifuge` was
+  added to `package.json`, the client image rebuilt with it, the container
+  force-recreated - and Vite still returned `Failed to resolve import
+  "centrifuge"`. Compose preserves anonymous volumes across recreate unless
+  `--renew-anon-volumes`, so `/app/node_modules` from the *old* image was
+  still mounted over the new one. `make restart` now renews them.
 
 ---
 

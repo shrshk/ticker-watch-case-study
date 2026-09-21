@@ -75,7 +75,17 @@ class PriceService:
             "postgres_errors": 0,
             "upstream_calls": 0,
             "upstream_errors": 0,
+            "published": 0,
+            "publish_batches": 0,
+            "publish_errors": 0,
         }
+        self._publisher: httpx.AsyncClient | None = None
+        if self._settings.transport == "push":
+            self._publisher = httpx.AsyncClient(
+                base_url=self._settings.centrifugo_api_url,
+                headers={"X-API-Key": self._settings.centrifugo_api_key},
+                timeout=5.0,
+            )
 
     # -- startup ----------------------------------------------------------
 
@@ -253,9 +263,13 @@ class PriceService:
             self._effective_at.setdefault(ticker, now)
         self.stats["updates_changed"] += len(changed)
 
+        # Three writes, three scopes, none blocking the others. A Postgres
+        # stall must not delay the publish; a Centrifugo stall must not delay
+        # the cache.
         await asyncio.gather(
             self._write_cache(prices),
             self._write_postgres(changed),
+            self._publish(changed),
         )
         self._last_published.update(prices)
 
@@ -336,7 +350,50 @@ class PriceService:
             self.stats["postgres_errors"] += 1
             logger.exception("latest_prices upsert failed for %d rows", len(rows))
 
+    async def _publish(self, changed: dict[str, float]) -> None:
+        """One publish per *changed* ticker, batched into one HTTP call.
+
+        Per-ticker channels, never per-user: the backend publishes once per
+        changed ticker per tick regardless of how many users watch it, and the
+        broker fans out. Unchanged tickers cost nothing - this is the reduction
+        that makes push cheap, and the thing polling structurally cannot do.
+        """
+        if self._publisher is None or not changed:
+            return
+        commands = []
+        for ticker, price in changed.items():
+            commands.append(
+                {
+                    "publish": {
+                        "channel": f"ticker:{ticker}",
+                        "data": {
+                            "security_id": self._ticker_to_id[ticker],
+                            "ticker": ticker,
+                            "price": price,
+                            "effective_at": to_iso(self._effective_at[ticker]),
+                            "source": self._source.name,
+                        },
+                    }
+                }
+            )
+        try:
+            response = await self._publisher.post("/batch", json={"commands": commands})
+            response.raise_for_status()
+            failed = sum(1 for r in response.json().get("replies", []) if "error" in r)
+            self.stats["published"] += len(commands) - failed
+            self.stats["publish_errors"] += failed
+            self.stats["publish_batches"] += 1
+            if failed:
+                logger.warning("centrifugo rejected %d of %d publishes", failed, len(commands))
+        except (httpx.HTTPError, ValueError):
+            # Realtime is at-most-once by design: a dropped tick is superseded
+            # by the next one in 5 seconds. Count it; do not retry it.
+            self.stats["publish_errors"] += len(commands)
+            logger.exception("publish batch of %d failed", len(commands))
+
     async def stop(self) -> None:
+        if self._publisher is not None:
+            await self._publisher.aclose()
         if self._source is not None:
             await self._source.aclose()
         await cache.close()

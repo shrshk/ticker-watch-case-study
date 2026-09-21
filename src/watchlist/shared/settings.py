@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # Client-visible.
     transport: Literal["poll", "push"] = "poll"
 
+    # Centrifugo. The price service publishes through its HTTP API; the API
+    # mints connection tokens with the same secret as access tokens.
+    centrifugo_api_url: str = "http://centrifugo:8000/api"
+    centrifugo_api_key: str = "dev-only-centrifugo-api-key"
+    centrifugo_token_ttl_seconds: int = 15 * 60
+
 
 @lru_cache
 def get_settings() -> Settings:

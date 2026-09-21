@@ -5,7 +5,14 @@
         clean submit bootstrap
 
 # Anything below can be overridden inline, e.g. `make up PRICE_SOURCE=simulated`.
-COMPOSE := docker compose
+# `make up TRANSPORT=push` adds Centrifugo; `BROKER=nats` swaps its broker.
+# Both are read from .env when not given inline, so a stack started one way
+# is recreated the same way by `make restart`.
+TRANSPORT ?= $(shell sed -n 's/^TRANSPORT=//p' .env 2>/dev/null)
+BROKER    ?= $(shell sed -n 's/^BROKER=//p' .env 2>/dev/null)
+PROFILES  := $(if $(filter push,$(TRANSPORT)),--profile push,)
+OVERRIDES := $(if $(filter nats,$(BROKER)),-f docker-compose.yml -f docker-compose.nats.yml,)
+COMPOSE := TRANSPORT=$(or $(TRANSPORT),poll) docker compose $(OVERRIDES) $(PROFILES)
 RUN_PY  := $(COMPOSE) run --rm --no-deps -T api
 
 # -- lifecycle ---------------------------------------------------------------
@@ -31,8 +38,11 @@ restart: ## Recreate services so .env AND code changes take effect
 	# silently ignores an edited .env. Not plain `up -d` either: that only
 	# recreates on a *config* change, so a code edit under the bind mount with
 	# --workers (no --reload) keeps running the old code while reporting
-	# healthy. --force-recreate is slower and always right.
-	$(COMPOSE) up -d --force-recreate
+	# healthy. --force-recreate is slower and always right. --renew-anon-volumes
+	# because the client's /app/node_modules is an anonymous volume that
+	# otherwise outlives the image it came from - a new dependency in the image
+	# stays invisible to Vite until the volume is renewed.
+	$(COMPOSE) up -d --force-recreate --renew-anon-volumes
 
 logs: ## Tail logs from every service
 	$(COMPOSE) logs -f

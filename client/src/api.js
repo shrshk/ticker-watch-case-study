@@ -109,4 +109,5 @@ export const api = {
   removeItem: (token, securityId) =>
     request(`/watchlist/items/${securityId}`, { method: 'DELETE', token }),
   logout: (refresh) => request('/auth/logout', { method: 'POST', body: { refresh_token: refresh } }),
+  realtimeToken: (token) => request('/realtime/token', { method: 'POST', token }),
 };

@@ -21,6 +21,8 @@ x-python-env: &python-env
   SIM_SEED: ${SIM_SEED:-1}
   TRANSPORT: ${TRANSPORT:-poll}
   UVICORN_ARGS: ${UVICORN_ARGS:-}
+  CENTRIFUGO_API_URL: http://centrifugo:8000/api
+  CENTRIFUGO_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-only-centrifugo-api-key}
   DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-2}
   DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-16}
 
@@ -121,6 +123,7 @@ services:
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
       VITE_TRANSPORT: ${TRANSPORT:-poll}
+      VITE_CENTRIFUGO_URL: ${VITE_CENTRIFUGO_URL:-ws://localhost:8001/connection/websocket}
       VITE_POLL_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-5}
     volumes:
       - ./client:/app
@@ -129,6 +132,33 @@ services:
       - "3000:3000"
     depends_on:
       - api
+
+  # All client-facing realtime: connections, subscriptions, reconnects, fanout.
+  # `push` profile only, so the polling version stays honestly standalone. The
+  # engine is configured, not coded: the NATS override swaps the config file
+  # and adds a broker, with no application code touched.
+  centrifugo:
+    image: centrifugo/centrifugo:v6
+    profiles: ["push"]
+    command: centrifugo -c /centrifugo/config.json
+    volumes:
+      - ./centrifugo/config.redis.json:/centrifugo/config.json:ro
+    environment:
+      # The same secret the API signs access tokens with, so a connection
+      # token is a claims transform rather than a second auth system.
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${JWT_SECRET:-dev-only-not-a-secret-but-at-least-32-bytes}
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-only-centrifugo-api-key}
+    ports:
+      - "8001:8000"
+    ulimits:
+      nofile: { soft: 200000, hard: 200000 }
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # Not part of the product. Runs only under the `load` profile, with
   # explicit arguments, and never as part of `make up`.
@@ -146,7 +176,8 @@ services:
       dockerfile: Dockerfile
     environment:
       API_BASE: http://api:8000
-      JWT_SECRET: ${JWT_SECRET:-dev-only-not-a-secret}
+      CENTRIFUGO_URL: ws://centrifugo:8000/connection/websocket
+      JWT_SECRET: ${JWT_SECRET:-dev-only-not-a-secret-but-at-least-32-bytes}
     ulimits:
       nofile: { soft: 200000, hard: 200000 }
     sysctls:
