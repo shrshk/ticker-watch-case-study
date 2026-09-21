@@ -216,3 +216,15 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# macOS
+.DS_Store
+
+# JetBrains
+.idea/
+
+# Node
+node_modules/
+
+# Local data
+solution.zip
