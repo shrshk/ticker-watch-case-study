@@ -217,6 +217,42 @@ Recorded rather than claimed away.
 
 ---
 
+## Before submission — after phase 3
+
+**Ship a small demo database, and load it on first start.**
+
+The original scaffold's `make submit` help text reads "Dump the Postgres
+database and package…" but its recipe only zips the directory, and the data
+lived in a named volume outside it - an intent that was never implemented. We
+will implement the sensible version of it, deliberately *not* the literal one:
+the current volume holds 1M load-test users and 9.7M watchlist rows, and a
+gigabyte of benchmark data does not belong in a submission.
+
+Design:
+
+- `make db-dump` → `db/demo.sql`, committed. Schema plus demo state only: the
+  99 securities, `latest_prices`, `user1`/`user2` and their watchlists, and no
+  `load_user_*` rows. A `pg_dump` with the load users excluded, or a small
+  script that selects what to keep.
+- `make db-restore` to load it explicitly.
+- On first start against an **empty** volume, `make bootstrap` / `make up`
+  loads `db/demo.sql` instead of running migrations against nothing - so a
+  reviewer's first `make open-app` shows a populated watchlist rather than an
+  empty one. Postgres's own `/docker-entrypoint-initdb.d/` hook is the
+  natural place: it runs only when the data directory is empty, which is
+  exactly the semantics wanted, and it costs no application code.
+- Migrations stay the source of truth for the schema; the dump must be
+  regenerated from them, never hand-edited. `make db-dump` should refuse if
+  load users are present, the same way `submit-check` refuses a benchmark
+  `.env`.
+
+Why: it demonstrates the "persisted and re-used across restarts" requirement
+concretely on the reviewer's own machine, and it is what the scaffold's author
+evidently meant. Status: **deferred to after phase 3**, then done before
+`make submit`.
+
+---
+
 ## What phase 3 inherits
 
 - A polling baseline measured without a write on the read path.
