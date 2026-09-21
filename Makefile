@@ -8,11 +8,16 @@
 # `make up TRANSPORT=push` adds Centrifugo; `BROKER=nats` swaps its broker.
 # Both are read from .env when not given inline, so a stack started one way
 # is recreated the same way by `make restart`.
-TRANSPORT ?= $(shell sed -n 's/^TRANSPORT=//p' .env 2>/dev/null)
-BROKER    ?= $(shell sed -n 's/^BROKER=//p' .env 2>/dev/null)
+# Defaults: push transport, Redis engine, one Centrifugo node. Polling and
+# NATS remain as toggles for the comparison, not as alternatives to choose.
+TRANSPORT ?= $(or $(shell sed -n 's/^TRANSPORT=//p' .env 2>/dev/null),push)
+BROKER    ?= $(or $(shell sed -n 's/^BROKER=//p' .env 2>/dev/null),redis)
+NODES     ?= 1
 PROFILES  := $(if $(filter push,$(TRANSPORT)),--profile push,)
-OVERRIDES := $(if $(filter nats,$(BROKER)),-f docker-compose.yml -f docker-compose.nats.yml,)
-COMPOSE := TRANSPORT=$(or $(TRANSPORT),poll) docker compose $(OVERRIDES) $(PROFILES)
+OVERRIDES := -f docker-compose.yml \
+             $(if $(filter nats,$(BROKER)),-f docker-compose.nats.yml,) \
+             $(if $(filter-out 1,$(NODES)),-f docker-compose.nodes.yml,)
+COMPOSE := TRANSPORT=$(TRANSPORT) docker compose $(OVERRIDES) $(PROFILES)
 RUN_PY  := $(COMPOSE) run --rm --no-deps -T api
 
 # -- lifecycle ---------------------------------------------------------------

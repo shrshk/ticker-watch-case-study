@@ -19,7 +19,7 @@ x-python-env: &python-env
   SIM_VOLATILITY: ${SIM_VOLATILITY:-0.002}
   SIM_CHANGE_RATIO: ${SIM_CHANGE_RATIO:-0.30}
   SIM_SEED: ${SIM_SEED:-1}
-  TRANSPORT: ${TRANSPORT:-poll}
+  TRANSPORT: ${TRANSPORT:-push}
   UVICORN_ARGS: ${UVICORN_ARGS:-}
   CENTRIFUGO_API_URL: http://centrifugo:8000/api
   CENTRIFUGO_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-only-centrifugo-api-key}
@@ -122,7 +122,7 @@ services:
       dockerfile: Dockerfile
     environment:
       VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
-      VITE_TRANSPORT: ${TRANSPORT:-poll}
+      VITE_TRANSPORT: ${TRANSPORT:-push}
       VITE_CENTRIFUGO_URL: ${VITE_CENTRIFUGO_URL:-ws://localhost:8001/connection/websocket}
       VITE_POLL_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-5}
     volumes:

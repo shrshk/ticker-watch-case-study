@@ -1,8 +1,9 @@
 """Refuse to package a .env left in benchmark mode.
 
 .env ships inside solution.zip, so whatever it says at `make submit` is what a
-reviewer runs. The submission default is the real vendor on a single reloading
-process; simulated prices and multiple workers are test and benchmark tooling.
+reviewer runs. The submission default is the real vendor, push transport, Redis engine, one
+Centrifugo node, a single reloading API process; simulated prices, polling,
+NATS, extra nodes and multiple workers are test and benchmark tooling.
 Refusing beats silently rewriting the file the operator is looking at.
 """
 
@@ -13,7 +14,8 @@ SUBMISSION_DEFAULTS = {
     "PRICE_SOURCE": "api",
     "UVICORN_ARGS": "",
     "LATEST_PRICE_SOURCE": "redis",
-    "TRANSPORT": "poll",
+    "TRANSPORT": "push",
+    "BROKER": "redis",
 }
 
 env = pathlib.Path(".env")

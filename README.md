@@ -193,6 +193,10 @@ A 5-second cadence invites an obvious question — why not just poll? Since the
 brief's stated focus is service↔client communication, that is the central design
 question, and it deserves a measurement rather than an argument.
 
+**The shipped default is push.** Polling was built first and stays behind the
+same hook as the comparison baseline; the transport section below is the
+argument, measured, for why push won.
+
 **So polling is built first, and it is not a strawman.** `GET /watchlist`
 already returns membership and prices together, so polling is a `setInterval`
 on the client and no extra server work at all. It is simple, has no connection
@@ -350,7 +354,7 @@ The other phase 3 scenarios, each in [`docs/measurements.md`](docs/measurements.
   **Three Centrifugo nodes on the same machine split the CPU evenly and
   changed nothing the client could see** - per-node broadcast time did not
   fall - so whether more nodes help is a question for separate hosts, not
-  this one. Sharding is out of scope; Redis sharding is the wrong layer.
+  this one. Sharding is out of scope.
 - **Redis vs NATS broker**: indistinguishable at ~6 broker messages a second.
   The swap touched two config files and no code, and bought nothing.
 - **What the cache is for**: under 25k polling clients it cuts request p99
@@ -629,7 +633,9 @@ Everything is in `.env` (see `.env.example`). The ones that change behaviour:
 | `UPSTREAM_POLL_INTERVAL_SECONDS` | `5` | What the vendor costs |
 | `PRICE_CACHE_TTL_SECONDS` | `60` | Must exceed the worst gap between updates |
 | `LATEST_PRICE_SOURCE` | `redis` | `postgres` bypasses the cache |
-| `TRANSPORT` | `poll` | `push` arrives in phase 3 |
+| `TRANSPORT` | `push` | `poll` remains as the comparison baseline |
+| `BROKER` | `redis` | `nats` swaps Centrifugo's broker; config only |
+| `NODES` (make) | `1` | `make up NODES=3` adds two Centrifugo nodes via an override |
 | `SIM_VOLATILITY` / `SIM_CHANGE_RATIO` / `SIM_SEED` | `0.002` / `0.30` / `1` | Report these with any benchmark |
 | `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` | `55432` / `56379` | Non-default so the stack can run beside another local Postgres or Redis |
 

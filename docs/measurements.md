@@ -810,7 +810,7 @@ discovered by building both paths and toggling between them. The toggle
 | 1 | At what client count does polling stop being the right answer, and what does push cost? | Polling's ceiling is ~30,000 clients on this machine (§2b) with update latency fixed at ~2.5s by arithmetic. Push holds 72-344ms p50 across 5k-25k at 2.4x less egress; it costs connection state, one snapshot per connect, and fanout CPU that grows linearly with subscribers (~0.12ms/delivery). |
 | 4 | How many realtime connections can one Centrifugo node sustain locally? | 25,000 connections with 241,737 subscriptions, zero errors, at 164% CPU. Not pushed to failure; the generator, not Centrifugo, is the next limit to find. |
 | 5 | Does one Redis doing cache and broker degrade snapshot latency, and does NATS remove it? | No degradation exists to remove at ~6 broker msg/s (§8.7). |
-| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | **Superlinearly.** ~6ms per broadcast at 25k, ~40ms at 50k (steady state), reproduced; the hot channel's tail separates from the rest between 25k and 50k. 100k was beyond this environment. Three nodes on the same machine split the CPU but did **not** reduce per-broadcast time or client latency (§8.11) - so the payoff of more nodes is unmeasured here and needs separate hosts. Sharding is out of scope; Redis sharding is the wrong layer. |
+| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | **Superlinearly.** ~6ms per broadcast at 25k, ~40ms at 50k (steady state), reproduced; the hot channel's tail separates from the rest between 25k and 50k. 100k was beyond this environment. Three nodes on the same machine split the CPU but did **not** reduce per-broadcast time or client latency (§8.11) - so the payoff of more nodes is unmeasured here and needs separate hosts.|
 | 7 | What happens to slow clients? | Centrifugo disconnects them (155 of ~200 at an 8 KiB queue); nobody else notices, p50 39ms (§8.5). |
 | 8 | Does `latest_prices` persistence affect realtime latency? | No - the durable write runs concurrently with cache and publish and is not on the delivery path. Not stress-tested with an artificially slow Postgres (plan Scenario G); deferred. |
 
@@ -872,12 +872,6 @@ order, when a hot channel outgrows a node:
 2. **Shard the hot channel within a node** (`ticker:NVDA:{0..N}`, clients
    hashed across shards) to run one channel's broadcast on several cores
    instead of one. Same total work, shorter tail.
-3. **Not Redis sharding.** Redis Cluster's classic pub/sub broadcasts every
-   publish to every cluster node - worse, not better. Redis 7 sharded pub/sub
-   (which Centrifugo supports) and Centrifugo's own consistent-hashing across
-   independent Redis instances both spread *broker* load, which at ~6 msg/s is
-   not a load. Neither moves a single client write. It is the intuitive fix and
-   the wrong layer.
 
 None of this is built. It belongs in the case-study discussion: the design
 removed the expensive half of the celebrity problem (publish amplification) by

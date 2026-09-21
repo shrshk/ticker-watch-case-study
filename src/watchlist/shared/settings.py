@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     latest_price_source: Literal["redis", "postgres"] = "redis"
 
     # Client-visible.
-    transport: Literal["poll", "push"] = "poll"
+    transport: Literal["poll", "push"] = "push"
 
     # Centrifugo. The price service publishes through its HTTP API; the API
     # mints connection tokens with the same secret as access tokens.
