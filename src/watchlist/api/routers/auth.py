@@ -1,13 +1,14 @@
 """Login, registration and identity. Transport only."""
 
 import asyncpg
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from watchlist.api.deps import connection, current_user
 from watchlist.modules.auth import auth_handler
 from watchlist.modules.auth.auth_schema import (
     LoginRequest,
     Principal,
+    RefreshRequest,
     RegisterRequest,
     Session,
     User,
@@ -43,6 +44,27 @@ async def login(
         return await auth_handler.login(conn, body.username, body.password)
     except auth_handler.InvalidCredentialsError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid username or password") from exc
+
+
+@router.post("/refresh", response_model=Session)
+async def refresh(
+    body: RefreshRequest,
+    conn: asyncpg.Connection = Depends(connection),
+) -> Session:
+    """Trade a refresh token for a new access/refresh pair. Rotates on every call."""
+    try:
+        return await auth_handler.refresh(conn, body.refresh_token)
+    except auth_handler.InvalidRefreshTokenError as exc:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid refresh token") from exc
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(
+    body: RefreshRequest,
+    conn: asyncpg.Connection = Depends(connection),
+) -> Response:
+    await auth_handler.logout(conn, body.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/me", response_model=User)

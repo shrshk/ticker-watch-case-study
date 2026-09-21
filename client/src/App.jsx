@@ -60,20 +60,32 @@ function Main() {
 export default function App() {
   const [session, setSession] = useState(() => storedSession());
 
-  const login = useCallback((token, user) => {
-    storeSession(token, user);
-    setSession({ token, user });
+  const login = useCallback((token, refresh, user) => {
+    storeSession(token, refresh, user);
+    setSession({ token, refresh, user });
   }, []);
 
   const logout = useCallback(() => {
+    const refresh = session?.refresh;
     clearSession();
     setSession(null);
-  }, []);
+    if (refresh) api.logout(refresh).catch(() => {});
+  }, [session]);
 
   useEffect(() => {
     const onUnauthorized = () => setSession(null);
+    // A background refresh rotated the tokens; pick up the new access token
+    // so the next poll uses it instead of the one that just expired.
+    const onRefreshed = (event) => {
+      const { access_token: token, refresh_token: refresh, user } = event.detail;
+      setSession({ token, refresh, user });
+    };
     window.addEventListener('watchlist:unauthorized', onUnauthorized);
-    return () => window.removeEventListener('watchlist:unauthorized', onUnauthorized);
+    window.addEventListener('watchlist:refreshed', onRefreshed);
+    return () => {
+      window.removeEventListener('watchlist:unauthorized', onUnauthorized);
+      window.removeEventListener('watchlist:refreshed', onRefreshed);
+    };
   }, []);
 
   const value = useMemo(

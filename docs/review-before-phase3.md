@@ -44,23 +44,32 @@ Fix: `-user-id-min` / `-user-id-max` are required flags; preflight samples 25
 random ids across the range and refuses to run unless ≥90% return 200. The
 three bench runners read the live range from Postgres and pass it.
 
-### C3 · `make restart` did not apply `.env` changes — fixed
+### C3 · `make restart` did not apply `.env` changes — fixed, then fixed again
 
 `docker compose restart` reuses each container's existing configuration. Editing
 `PRICE_SOURCE` or `UVICORN_ARGS` and running `make restart` changed nothing, and
-`docs/measurements.md` told the reader to do exactly that. Now `docker compose
-up -d`, which recreates whatever changed.
+`docs/measurements.md` told the reader to do exactly that. First fix: `docker
+compose up -d`. That was still wrong for a *code* change: `up -d` recreates
+only on a config change, so with `--workers 4` (no `--reload`) an edited
+file under the bind mount kept the old process running while the healthcheck
+said healthy - which is exactly how the refresh-token smoke test first ran
+against code that did not have refresh tokens. Now `up -d --force-recreate`:
+slower, always right.
 
-### C4 · A per-request database lookup on a stateless token — fixed, as a stated trade
+### C4 · A per-request database lookup on a stateless token — fixed, trade closed
 
 `current_user` verified the JWT and then ran `SELECT … FROM users WHERE id = $1`
 on every request to catch "user no longer exists" — the cost of stateful auth
 with the guarantees of stateless. The caller now comes from the token's claims
 (`Principal`), and `/auth/me` is the one endpoint that consults the database.
 
-The trade, stated: a revoked user's token stays valid until it expires (24h).
-A denylist or a short TTL would close that; neither is built, and the README
-says so.
+The trade this opened - a revoked user's token staying valid until it expired,
+24h at the time - is closed by the standard pattern: **15-minute access tokens
+and 30-day refresh tokens**, opaque, stored hashed, rotated on every use, with
+reuse of a rotated token revoking every session the user holds. Deleting a user
+cascades their refresh tokens away, so the session ends within one access-token
+TTL. One database read per user per 15 minutes instead of one per poll.
+`tests/test_refresh_tokens.py` pins all of it.
 
 ---
 

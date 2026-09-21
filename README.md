@@ -323,9 +323,9 @@ to Postgres on every poll** — the watchlist was resolved with
 when nothing changes; `pg_stat_user_tables` showed 8.8M updates on `watchlists`
 from polling alone — and that **every request looked the user up in the
 database** despite carrying a verified token. Both are fixed: the resolve is a
-`SELECT`, and the caller's identity comes from the token (the trade is that a
-revoked user's token stays valid until it expires; `/auth/me` is the one place
-the database is consulted). The ceiling figures above were re-measured after
+`SELECT`, and the caller's identity comes from the token. The revocation gap
+that opened - a stale token staying valid until expiry - is closed by 15-minute
+access tokens with rotated refresh tokens (see Auth). The ceiling figures above were re-measured after
 the fix; the full list of findings is in
 [`docs/review-before-phase3.md`](docs/review-before-phase3.md).
 
@@ -496,19 +496,40 @@ a source that exists to avoid the vendor should not call it to start up.
 
 ## Auth
 
-Username and password, bcrypt-hashed, exchanged for an HS256 JWT.
+Username and password, bcrypt-hashed, exchanged for two tokens:
+
+| token | form | lifetime | verified by |
+|---|---|---|---|
+| **access** | HS256 JWT | **15 minutes** | its signature — no database read on any request |
+| **refresh** | opaque random, stored **hashed** | 30 days | a lookup in `refresh_tokens`, once per access-token lifetime |
+
+The access token is trusted for its lifetime; that is what keeps every poll
+free of a database round trip. The refresh token is where revocation lives:
+
+- **Rotation.** Every `POST /auth/refresh` retires the presented token and
+  issues a new pair.
+- **Reuse detection.** Presenting an already-rotated token revokes **every**
+  refresh token the user holds — one of the two holders is not them.
+- **Logout** retires one refresh token; other devices stay signed in.
+- **Deleting a user** cascades their refresh tokens away, so their session ends
+  at the next refresh — within one access-token TTL.
+
+The client refreshes lazily: on a 401 it refreshes once and retries the
+request, serialising concurrent refreshes so ten polls hitting an expired
+token together spend one refresh token rather than ten (the second would be a
+reuse). If the refresh fails, it logs out.
 
 The scaffold shipped "a login method with no authentication" — it took a
 username and returned the user. Strictly, the brief only says the client must
-*support login*, so the scaffold satisfies it literally. A password check was
-added anyway because the system's entire premise is per-user watchlists, and
-because phase 3 needs a signed token regardless: Centrifugo validates a
-connection token, and the cleanest source is the same secret that signs the
-login token, making `POST /realtime/token` a claims transform rather than a
-second auth system.
+*support login*, so the scaffold satisfies it literally. This was built anyway
+because the system's entire premise is per-user watchlists, and because
+phase 3 needs a signed token regardless: Centrifugo validates a connection
+token, and the cleanest source is the same secret that signs the access token.
 
-Login returns the same error whether the username is unknown or the password is
-wrong, so the endpoint does not enumerate users.
+Login returns the same error whether the username is unknown or the password
+is wrong, so the endpoint does not enumerate users. The refresh endpoint
+returns the same error for unknown, expired and reused tokens, for the same
+reason.
 
 ---
 
@@ -517,7 +538,9 @@ wrong, so the endpoint does not enumerate users.
 | Method | Path | |
 |---|---|---|
 | `POST` | `/auth/register` | Creates the user and their default watchlist |
-| `POST` | `/auth/login` | Returns a JWT |
+| `POST` | `/auth/login` | Returns an access token (15 min) and a refresh token |
+| `POST` | `/auth/refresh` | Rotates: retires the presented refresh token, returns a new pair |
+| `POST` | `/auth/logout` | Retires one refresh token |
 | `GET` | `/auth/me` | |
 | `GET` | `/securities/search?q=` | Exact ticker → ticker prefix → name |
 | `GET` | `/watchlist` | Membership **and** current prices, in one call |
@@ -607,7 +630,7 @@ make up-detached && make migrate   # the integration tests need the stack
 make test
 ```
 
-59 tests. They run against a separate `watchlist_test` database created and
+69 tests. They run against a separate `watchlist_test` database created and
 dropped per run, so a test run never touches the demo data. They cover the
 claims this README makes rather than the code's surface area:
 
@@ -619,6 +642,7 @@ claims this README makes rather than the code's surface area:
 | `test_search.py` | `NV` → NVDA/NVAX/NVR, exact-ticker ranking, name matching, case insensitivity |
 | `test_simulated_source.py` | Prices stay near real values, the seed reproduces a walk, a price never reaches zero, the change ratio is honoured |
 | `test_handlers.py` | The handler layer: domain errors, watchlist isolation between users, add/remove semantics, and that a security with no price keeps its row |
+| `test_refresh_tokens.py` | Access tokens are short; refresh tokens are stored hashed, rotate on use, and a replayed token revokes every session; logout and user deletion end the session at the next refresh |
 | `test_review_regressions.py` | Pins the pre-phase-3 review findings: resolving a watchlist performs no UPDATE (checked via `pg_stat_xact_user_tables`), timestamps sort lexically in chronological order at `.000000`, and the pipelined cache write actually queues |
 
 Lint and format with `make lint` / `make format` (ruff, line length 100).

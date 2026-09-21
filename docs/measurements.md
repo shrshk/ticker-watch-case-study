@@ -554,7 +554,7 @@ make seed-million                                     # ~2.5 minutes
 # the run then measures a different server than the results claim. Set:
 #   PRICE_SOURCE=simulated      deterministic movement, works out of hours
 #   UVICORN_ARGS=--workers 4
-make reset-prices && make restart
+make reset-prices && make restart     # restart = up -d --force-recreate; see review C3
 
 make db-bench
 make load-container CLIENTS=20000 DURATION=60s

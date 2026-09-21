@@ -26,9 +26,15 @@ class Settings(BaseSettings):
     db_pool_max_size: int = 16
 
     # Auth. The same secret signs Centrifugo connection tokens.
-    jwt_secret: str = "dev-only-not-a-secret"
-    jwt_ttl_seconds: int = 86_400
+    #
+    # Access tokens are verified from their signature alone, with no database
+    # read, so they are kept short. Refresh tokens are opaque, stored hashed,
+    # rotated on every use, and are the only place revocation exists. Deleting
+    # or disabling a user therefore takes effect within one access-token TTL.
+    jwt_secret: str = "dev-only-not-a-secret-but-at-least-32-bytes"
     jwt_algorithm: str = "HS256"
+    access_token_ttl_seconds: int = 15 * 60
+    refresh_token_ttl_seconds: int = 30 * 24 * 3600
 
     # Price service.
     price_source: Literal["api", "simulated"] = "api"

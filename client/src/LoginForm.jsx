@@ -21,7 +21,7 @@ export function LoginForm() {
           mode === 'login'
             ? await api.login(username, password)
             : await api.register(username, password);
-        login(data.access_token, data.user);
+        login(data.access_token, data.refresh_token, data.user);
       } catch (err) {
         setError(err.message);
       } finally {

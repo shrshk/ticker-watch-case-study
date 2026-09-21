@@ -39,4 +39,11 @@ class Session(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    # Opaque. Present it to POST /auth/refresh for a new pair; each use
+    # rotates it. Never sent as a bearer token.
+    refresh_token: str
     user: User
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=16, max_length=256)

@@ -32,7 +32,7 @@ class TestTokens:
         claims = decode_token(token)
         assert claims["sub"] == "42"
         assert claims["username"] == "user1"
-        assert ttl == get_settings().jwt_ttl_seconds
+        assert ttl == get_settings().access_token_ttl_seconds
 
     def test_a_token_signed_with_another_secret_is_rejected(self):
         forged = jwt.encode({"sub": "1"}, "not-the-secret", algorithm="HS256")

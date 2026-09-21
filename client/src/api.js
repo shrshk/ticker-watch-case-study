@@ -3,27 +3,57 @@
 const BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 const TOKEN_KEY = 'watchlist.token';
+const REFRESH_KEY = 'watchlist.refresh';
 const USER_KEY = 'watchlist.user';
 
 export function storedSession() {
   const token = localStorage.getItem(TOKEN_KEY);
+  const refresh = localStorage.getItem(REFRESH_KEY);
   const raw = localStorage.getItem(USER_KEY);
-  if (!token || !raw) return null;
+  if (!token || !refresh || !raw) return null;
   try {
-    return { token, user: JSON.parse(raw) };
+    return { token, refresh, user: JSON.parse(raw) };
   } catch {
     return null;
   }
 }
 
-export function storeSession(token, user) {
+export function storeSession(token, refresh, user) {
   localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(REFRESH_KEY, refresh);
   localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function clearSession() {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
+}
+
+// One refresh in flight at a time. Ten polls hitting a 401 together must not
+// spend ten refresh tokens - the second would be a reuse and revoke them all.
+let refreshing = null;
+
+async function refreshSession() {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const refresh = localStorage.getItem(REFRESH_KEY);
+      if (!refresh) throw new ApiError(401, 'no refresh token');
+      const response = await fetch(`${BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refresh }),
+      });
+      if (!response.ok) throw new ApiError(response.status, 'refresh failed');
+      const data = await response.json();
+      storeSession(data.access_token, data.refresh_token, data.user);
+      window.dispatchEvent(new CustomEvent('watchlist:refreshed', { detail: data }));
+      return data.access_token;
+    })().finally(() => {
+      refreshing = null;
+    });
+  }
+  return refreshing;
 }
 
 export class ApiError extends Error {
@@ -33,7 +63,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, token } = {}) {
+async function request(path, { method = 'GET', body, token, retried = false } = {}) {
   const response = await fetch(`${BASE}${path}`, {
     method,
     headers: {
@@ -43,11 +73,16 @@ async function request(path, { method = 'GET', body, token } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
-  if (response.status === 401 && token) {
-    // The token is dead - expired, or the secret rotated. Polling on with it
-    // would fail every 5s forever. Drop the session and let the app react.
-    clearSession();
-    window.dispatchEvent(new Event('watchlist:unauthorized'));
+  if (response.status === 401 && token && !retried) {
+    // The access token has expired - by design, every 15 minutes. Refresh
+    // once and retry. If the refresh itself fails the session is really over.
+    try {
+      const fresh = await refreshSession();
+      return request(path, { method, body, token: fresh, retried: true });
+    } catch {
+      clearSession();
+      window.dispatchEvent(new Event('watchlist:unauthorized'));
+    }
   }
 
   if (!response.ok) {
@@ -73,4 +108,5 @@ export const api = {
     request('/watchlist/items', { method: 'POST', token, body: { security_id: securityId } }),
   removeItem: (token, securityId) =>
     request(`/watchlist/items/${securityId}`, { method: 'DELETE', token }),
+  logout: (refresh) => request('/auth/logout', { method: 'POST', body: { refresh_token: refresh } }),
 };

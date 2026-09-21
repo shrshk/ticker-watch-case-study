@@ -26,10 +26,13 @@ up-detached: ## Run the whole stack in the background
 down: ## Stop the stack and remove containers
 	$(COMPOSE) down
 
-restart: ## Recreate services so .env changes take effect
+restart: ## Recreate services so .env AND code changes take effect
 	# Not `compose restart`: that reuses each container's existing config and
-	# silently ignores an edited .env. `up -d` recreates whatever changed.
-	$(COMPOSE) up -d
+	# silently ignores an edited .env. Not plain `up -d` either: that only
+	# recreates on a *config* change, so a code edit under the bind mount with
+	# --workers (no --reload) keeps running the old code while reporting
+	# healthy. --force-recreate is slower and always right.
+	$(COMPOSE) up -d --force-recreate
 
 logs: ## Tail logs from every service
 	$(COMPOSE) logs -f

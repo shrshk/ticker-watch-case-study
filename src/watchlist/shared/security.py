@@ -7,6 +7,8 @@ endpoint is a claims transform rather than a second auth system.
 """
 
 import datetime as dt
+import hashlib
+import secrets
 
 import bcrypt
 import jwt
@@ -26,11 +28,20 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+def new_refresh_token() -> str:
+    """Opaque, unguessable, never decoded. Only its hash is stored."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 def issue_token(user_id: int, username: str) -> tuple[str, int]:
-    """Return (token, expires_in_seconds)."""
+    """Return (access_token, expires_in_seconds)."""
     settings = get_settings()
     now = dt.datetime.now(dt.UTC)
-    ttl = settings.jwt_ttl_seconds
+    ttl = settings.access_token_ttl_seconds
     payload = {
         "sub": str(user_id),
         "username": username,
