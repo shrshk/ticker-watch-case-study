@@ -129,11 +129,45 @@ client first observes it.
 **p50 sits at half the poll interval and p99 at a full interval, at every load
 level.** That is arithmetic, not a performance problem: a change that lands
 just after a client polls waits the whole 5 seconds. No amount of server
-capacity improves it. The only levers are shortening the interval — which
-multiplies request rate linearly — or pushing.
+capacity improves it.
 
+### Proof that it is the interval, not a resource limit
+
+Same 1,000 clients in every run, so CPU and memory are constant. Only the poll
+interval changes.
+
+| interval | p50 | p95 | p99 | max | p50 ÷ interval | p99 ÷ interval |
+|---|---|---|---|---|---|---|
+| 1s | 504ms | 947ms | 997ms | 1,128ms | 0.50 | 1.00 |
+| 2s | 1,005ms | 1,916ms | 1,989ms | 2,010ms | 0.50 | 0.99 |
+| 5s | 2,535ms | 4,769ms | 4,939ms | 5,012ms | 0.51 | 0.99 |
+| 10s | 4,604ms | 9,420ms | 9,877ms | 10,007ms | 0.46 | 0.99 |
+
+Latency moves 20-fold across these runs while the load does not move at all.
+The ratios are flat to within a few percent: **p50 is half the interval and p99
+is the whole interval**, which is the signature of a uniform wait — a change
+lands at a random point in a fixed cycle. There is no CPU or memory term in it.
+
+The only levers are shortening the interval, which multiplies request rate
+linearly and walks straight into the ceiling in the table above, or pushing.
 This is the number phase 3 has to beat, and the reason the comparison is worth
 running.
+
+### Memory during collapse is a symptom, not the cause
+
+API memory grows from 228 MB to 1.1 GB past the knee, which invites the reading
+that the service runs out of memory. It does not:
+
+- The container had 31 GB available and peaked at 1.1 GB. Nothing was killed,
+  and no limit was reached.
+- The API was pinned at 383–422% of its 400% worker budget at the same moment.
+  CPU ran out; memory did not.
+- The growth is the request backlog held in memory. Queue depth rises because
+  workers cannot keep up, so memory is the *visible consequence* of CPU
+  saturation rather than an independent limit.
+
+Raising the memory limit would change nothing. Adding worker CPU is the only
+lever, and section 5 shows that on this machine there is not much of it left.
 
 ---
 

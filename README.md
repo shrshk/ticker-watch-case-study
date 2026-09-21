@@ -218,14 +218,24 @@ queue. The API exhausts its worker CPU first; Postgres is at 194% and Redis at
 **Update latency is fixed by the interval, not by load.** Measured at the
 client, from a price's `effective_at` to the moment a client sees it:
 
-| clients | p50 | p99 |
-|---|---|---|
-| 1,000 | 2,548ms | 4,970ms |
-| 25,000 | 2,573ms | 4,961ms |
+| clients | p50 | p95 | p99 |
+|---|---|---|---|
+| 1,000 | 2,548ms | 4,763ms | 4,970ms |
+| 25,000 | 2,573ms | 4,763ms | 4,961ms |
 
-Half an interval at p50, a full interval at p99, at every load level. That is
-arithmetic, and no amount of server capacity improves it. This is the number
-push has to beat.
+Half an interval at p50, a full interval at p99, at every load level. Holding
+the load at 1,000 clients and varying only the interval confirms it is
+arithmetic rather than a resource limit:
+
+| interval | p50 | p95 | p99 |
+|---|---|---|---|
+| 1s | 504ms | 947ms | 997ms |
+| 2s | 1,005ms | 1,916ms | 1,989ms |
+| 5s | 2,535ms | 4,769ms | 4,939ms |
+| 10s | 4,604ms | 9,420ms | 9,877ms |
+
+Latency moves 20-fold while the load does not move at all. No amount of server
+capacity improves it. This is the number push has to beat.
 
 **And the cost is paid whether or not anything changed.** Measured at 16,900
 bytes per client per minute, constant across the whole range. At
