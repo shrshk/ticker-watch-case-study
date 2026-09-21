@@ -81,7 +81,7 @@ TTL. One database read per user per 15 minutes instead of one per poll.
 | **H2** | `_write_postgres` / `_write_cache` caught `OSError` only. asyncpg raises `PostgresError`/`InterfaceError`; redis raises `RedisError` subclasses that are not `OSError`. They escaped to the loop's catch-all as "tick failed"; `postgres_errors` never incremented; the connection-exhaustion incident was counted as generic failures. | **fixed** — driver exception types, plus a `cache_errors` counter |
 | **H3** | Client never logged out on 401. An expired or invalidated token meant polling every 5s with a dead token, forever, showing "offline". | **fixed** — `api.js` clears the session on 401 and dispatches an event; `App` drops the session |
 | **H4** | `${ALBERT_API_KEY:?…}` was required even for `PRICE_SOURCE=simulated`. A reviewer without a key could not run the stack at all. | **fixed** — optional; `AlbertSource` fails loudly when the key is actually needed |
-| **H5** | `price-service` had no healthcheck. `up --wait` reported it healthy while it was refusing to start in the `SourceMismatch` backoff loop. | **fixed** — the loop touches `/tmp/heartbeat` each tick; the healthcheck requires it to be under 30s old |
+| **H5** | `price-service` had no healthcheck. `up --wait` reported it healthy while it was refusing to start in the `SourceMismatch` backoff loop. | **fixed** — the loop touches `/tmp/heartbeat` each tick; the healthcheck requires it to be under 30s old. *Follow-up:* the refuse-to-start itself was then removed. Only api-over-simulated was ever dangerous; the service now wipes in that direction and adopts real rows in the other (`prices_handler.reconcile_source`, six tests). The 30s backoff loop that looked like a slow start is gone with it. |
 
 ---
 

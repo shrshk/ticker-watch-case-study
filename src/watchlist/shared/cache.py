@@ -106,6 +106,14 @@ async def get_prices(tickers: list[str]) -> dict[str, dict]:
     return out
 
 
+async def flush_prices() -> int:
+    """Delete every price:* key. Returns how many. Safe: the next tick refills."""
+    deleted = 0
+    async for key in client().scan_iter(match="price:*", count=1000):
+        deleted += await client().delete(key)
+    return deleted
+
+
 async def close() -> None:
     global _client
     if _client is not None:

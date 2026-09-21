@@ -306,7 +306,7 @@ Avoid this by treating prices as fully derived state:
 DELETE FROM latest_prices WHERE source = 'simulated';   -- plus flush price:*
 ```
 
-The price service records the active source at startup and **refuses to start** if it does not match what is already in `latest_prices`, directing the operator to `make reset-prices`. Users, watchlists and securities are untouched, so the reset costs nothing. The startup check is the part that matters — without it this fails silently, which is the worst mode for something that quietly changes which numbers you are reporting.
+~~The price service records the active source at startup and **refuses to start** if it does not match what is already in `latest_prices`, directing the operator to `make reset-prices`.~~ *Revised (2026-09-21): refusing both ways was wrong - only api-over-simulated is dangerous. The service now wipes simulated rows when starting the vendor, and adopts real rows as starting values when starting the simulator. Neither refuses.* Users, watchlists and securities are untouched, so the reset costs nothing. The startup check is the part that matters — without it this fails silently, which is the worst mode for something that quietly changes which numbers you are reporting.
 
 **Show the source in the UI.** A small badge whenever `source != 'api'`. It costs nothing and means nobody watching a demo mistakes generated numbers for live market data.
 

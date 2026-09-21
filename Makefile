@@ -62,7 +62,7 @@ redis-cli: ## Open a Redis shell
 capture-prices: ## One-off: refresh seed/securities.csv and seed/prices.csv from the vendor
 	$(COMPOSE) run --rm -T -v $(PWD)/seed:/app/seed api python tools/seed/capture_prices.py
 
-reset-prices: ## Clear latest_prices and price:* so PRICE_SOURCE can be switched
+reset-prices: ## Clear latest_prices and price:* (manual; switching PRICE_SOURCE no longer needs it)
 	$(COMPOSE) run --rm -T api python tools/reset_prices.py
 
 # -- load seeds --------------------------------------------------------------

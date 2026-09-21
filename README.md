@@ -437,25 +437,24 @@ Covered by `tests/test_write_ordering.py`.
 
 ## Switching price sources
 
-Simulated prices carry `now()`, so they always win the `effective_at` guard. The
-reverse does not hold: switching back to the vendor outside market hours returns
-the last close, whose timestamp is *older*, so every upsert would be silently
-rejected while the app reported `PRICE_SOURCE=api` and kept serving generated
-numbers.
+Set `PRICE_SOURCE` in `.env` and `make restart`. The price service reconciles
+the stored prices with the source about to write, and the two directions are
+deliberately different:
 
-Prices are fully derived state, so the fix is to clear them:
+| starting | over rows from | what happens | why |
+|---|---|---|---|
+| `api` | `simulated` | **wipes** the simulated rows and their cache keys, then starts | simulated prices carry fresh timestamps, so real prices would lose the `effective_at` guard on every tick and be silently rejected — the app would serve generated numbers under an `api` label. The rows are derived state with no value; delete them. |
+| `simulated` | `api` | **adopts** the real rows as the walk's starting values, re-stamped `simulated` | the last real quote per ticker is exactly what the walk should seed from. Re-stamping keeps the table, the cache and the UI badge agreeing on provenance from the first tick. `effective_at` is left alone, so a later real quote still wins the guard honestly. |
 
-```bash
-make reset-prices      # DELETE FROM latest_prices, plus FLUSH price:*
-```
+Neither direction refuses to start. An earlier version did — refusing both
+ways and waiting 30s between attempts until an operator ran `make
+reset-prices` — which turned a one-line decision the service can make itself
+into something that looked like a slow start. `make reset-prices` still exists
+as a manual "clear everything" tool; it is no longer required for switching.
 
-`price-service` **refuses to start** if the configured source does not match
-what is already in `latest_prices`, and says which target to run. Without that
-check the failure is silent, which is the worst mode for something that quietly
-changes which numbers you are reporting.
-
-The check runs *before* the catalog sync, so a misconfiguration never costs a
-call to a vendor that charges per request.
+Prices are fully derived: `latest_prices` and the cache can always be rebuilt
+within one tick, and users, watchlists and securities are untouched by either
+path.
 
 ---
 
@@ -630,7 +629,7 @@ make up-detached && make migrate   # the integration tests need the stack
 make test
 ```
 
-69 tests. They run against a separate `watchlist_test` database created and
+75 tests. They run against a separate `watchlist_test` database created and
 dropped per run, so a test run never touches the demo data. They cover the
 claims this README makes rather than the code's surface area:
 
@@ -643,6 +642,7 @@ claims this README makes rather than the code's surface area:
 | `test_simulated_source.py` | Prices stay near real values, the seed reproduces a walk, a price never reaches zero, the change ratio is honoured |
 | `test_handlers.py` | The handler layer: domain errors, watchlist isolation between users, add/remove semantics, and that a security with no price keeps its row |
 | `test_refresh_tokens.py` | Access tokens are short; refresh tokens are stored hashed, rotate on use, and a replayed token revokes every session; logout and user deletion end the session at the next refresh |
+| `test_source_reconciliation.py` | Starting the vendor over simulated rows wipes them; starting the simulator over real rows adopts them with `effective_at` untouched; a clean table is a no-op either way |
 | `test_review_regressions.py` | Pins the pre-phase-3 review findings: resolving a watchlist performs no UPDATE (checked via `pg_stat_xact_user_tables`), timestamps sort lexically in chronological order at `.000000`, and the pipelined cache write actually queues |
 
 Lint and format with `make lint` / `make format` (ruff, line length 100).

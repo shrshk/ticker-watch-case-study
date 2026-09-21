@@ -56,5 +56,15 @@ async def distinct_sources(conn: asyncpg.Connection) -> list[str]:
     return [r["source"] for r in rows]
 
 
-async def delete_by_source(conn: asyncpg.Connection, source: str) -> str:
-    return await conn.execute("DELETE FROM latest_prices WHERE source = $1", source)
+async def delete_by_source(conn: asyncpg.Connection, source: str) -> int:
+    """Returns rows deleted."""
+    result = await conn.execute("DELETE FROM latest_prices WHERE source = $1", source)
+    return int(result.rsplit(" ", 1)[-1])
+
+
+async def relabel_source(conn: asyncpg.Connection, old: str, new: str) -> int:
+    """Re-stamp rows from one source as another. Returns rows changed."""
+    result = await conn.execute(
+        "UPDATE latest_prices SET source = $2, updated_at = now() WHERE source = $1", old, new
+    )
+    return int(result.rsplit(" ", 1)[-1])

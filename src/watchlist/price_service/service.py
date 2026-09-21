@@ -35,7 +35,7 @@ import asyncpg
 import httpx
 import redis.exceptions
 
-from watchlist.modules.prices import prices_controller
+from watchlist.modules.prices import prices_controller, prices_handler
 from watchlist.modules.securities import securities_controller
 from watchlist.price_service.sources.albert import AlbertSource
 from watchlist.price_service.sources.base import PriceSource
@@ -49,10 +49,6 @@ logger = get_logger(__name__)
 
 SEED_PRICES = pathlib.Path(__file__).resolve().parents[3] / "seed" / "prices.csv"
 HEARTBEAT = pathlib.Path("/tmp/heartbeat")
-
-
-class SourceMismatch(RuntimeError):
-    """latest_prices holds rows from a different source than the one configured."""
 
 
 class PriceService:
@@ -87,9 +83,7 @@ class PriceService:
         await db.connect(min_size=1, max_size=4)
         await cache.register_scripts()
         await self._wait_for_schema()
-        # Before the catalog sync, not after: a configuration error must not
-        # cost a call to a vendor that prices per request.
-        await self._check_source_matches_stored()
+        await self._reconcile_source()
         await self._sync_catalog()
         self._source = await self._build_source()
         await self._warm_cache_from_postgres()
@@ -156,23 +150,21 @@ class PriceService:
         logger.info("catalog: %d tickers from %s", len(rows), seed.name)
         return rows
 
-    async def _check_source_matches_stored(self) -> None:
-        """Refuse to start against prices written by a different source.
+    async def _reconcile_source(self) -> None:
+        """Make the stored prices consistent with the source about to write.
 
-        Without this the failure is silent: simulated rows carry now() and
-        always win the effective_at guard, so a later switch back to the vendor
-        is rejected row by row while the app reports SOURCE=api and keeps
-        serving generated numbers. Silent is the worst mode for something that
-        quietly changes which numbers you are reporting.
+        Starting the vendor over simulated rows wipes them (and their cache
+        keys - a cached simulated price would otherwise win the guard against
+        the real one). Starting the simulator over real rows adopts them as
+        the walk's starting point. See prices_handler.reconcile_source for why
+        the two directions differ. Neither refuses to start.
         """
         async with db.pool().acquire() as conn:
-            stored = await prices_controller.distinct_sources(conn)
-        foreign = [s for s in stored if s != self._settings.price_source]
-        if foreign:
-            raise SourceMismatch(
-                f"latest_prices holds rows from {foreign} but PRICE_SOURCE="
-                f"{self._settings.price_source}. Run 'make reset-prices' first."
-            )
+            outcome = await prices_handler.reconcile_source(conn, self._settings.price_source)
+        if outcome.action == "wiped_simulated":
+            flushed = await cache.flush_prices()
+            logger.warning("flushed %d cached prices along with the simulated rows", flushed)
+        self.stats["source_reconciliation"] = outcome.action
 
     async def _build_source(self) -> PriceSource:
         if self._settings.price_source == "api":

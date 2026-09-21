@@ -114,3 +114,45 @@ async def read_snapshot(
 ) -> PriceSnapshot:
     """Convenience wrapper for the common single-read case."""
     return await SnapshotReader(conn).read(securities)
+
+
+@dataclasses.dataclass(frozen=True)
+class SourceReconciliation:
+    """What starting a price source against the existing rows had to do."""
+
+    action: str  # "clean" | "wiped_simulated" | "adopted_api"
+    rows: int
+
+
+async def reconcile_source(conn: asyncpg.Connection, configured: str) -> SourceReconciliation:
+    """Make latest_prices consistent with the source about to start writing.
+
+    The two directions are not symmetric, and the earlier version treated
+    them as if they were - refusing to start either way and leaving the
+    operator to run reset-prices. Only one direction was ever dangerous:
+
+    * Starting the real vendor over simulated rows. Simulated prices carry
+      fresh timestamps, so real prices would lose the effective_at guard on
+      every tick and be silently rejected, and the app would serve generated
+      numbers under an "api" label. The simulated rows are derived state
+      with no value, so the answer is to delete them and start clean.
+
+    * Starting the simulator over real rows. That is exactly what the walk
+      should seed from - the last real quote per ticker. The rows are kept
+      and re-stamped as simulated so the table, the cache and the UI badge
+      agree on provenance from the first tick, instead of disagreeing until
+      every ticker happens to move.
+    """
+    stored = set(await prices_controller.distinct_sources(conn))
+    foreign = stored - {configured}
+    if not foreign:
+        return SourceReconciliation("clean", 0)
+
+    if configured == "api":
+        rows = await prices_controller.delete_by_source(conn, "simulated")
+        logger.warning("starting the vendor source over %d simulated rows; wiped them", rows)
+        return SourceReconciliation("wiped_simulated", rows)
+
+    rows = await prices_controller.relabel_source(conn, "api", "simulated")
+    logger.info("starting the simulator from %d real prices; re-stamped them as simulated", rows)
+    return SourceReconciliation("adopted_api", rows)
