@@ -24,7 +24,11 @@ PY
 }
 
 recreate() {  # services... - force-recreate so .env and code both apply
-  ${COMPOSE_PUSH} up -d --force-recreate --no-deps "$@" >/dev/null 2>&1
+  # Never fail silently: under `set -e` a quiet non-zero exit here ends the
+  # whole harness with no output, which is exactly how one run vanished.
+  if ! ${COMPOSE_PUSH} up -d --force-recreate --no-deps "$@" > /tmp/recreate.log 2>&1; then
+    echo "REFUSING: recreate $* failed:" >&2; grep -vE '^ (Container|Network)' /tmp/recreate.log | tail -5 >&2; exit 1
+  fi
 }
 
 wait_healthy() {  # service - poll compose health

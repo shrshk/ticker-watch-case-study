@@ -810,7 +810,7 @@ discovered by building both paths and toggling between them. The toggle
 | 1 | At what client count does polling stop being the right answer, and what does push cost? | Polling's ceiling is ~30,000 clients on this machine (§2b) with update latency fixed at ~2.5s by arithmetic. Push holds 72-344ms p50 across 5k-25k at 2.4x less egress; it costs connection state, one snapshot per connect, and fanout CPU that grows linearly with subscribers (~0.12ms/delivery). |
 | 4 | How many realtime connections can one Centrifugo node sustain locally? | 25,000 connections with 241,737 subscriptions, zero errors, at 164% CPU. Not pushed to failure; the generator, not Centrifugo, is the next limit to find. |
 | 5 | Does one Redis doing cache and broker degrade snapshot latency, and does NATS remove it? | No degradation exists to remove at ~6 broker msg/s (§8.7). |
-| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | **Superlinearly.** ~0.15µs/subscriber at 5k, 0.32 at 20k, 0.74 at 50k (37ms per broadcast); the hot channel's tail separates from the rest between 25k and 50k on one node. 100k was beyond this environment to measure. Levers in order: more nodes, then in-node channel sharding, not Redis sharding (§8.10). |
+| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | **Superlinearly.** ~6ms per broadcast at 25k, ~40ms at 50k (steady state), reproduced; the hot channel's tail separates from the rest between 25k and 50k. 100k was beyond this environment. Three nodes on the same machine split the CPU but did **not** reduce per-broadcast time or client latency (§8.11) - so the payoff of more nodes is unmeasured here and needs separate hosts. Sharding is out of scope; Redis sharding is the wrong layer. |
 | 7 | What happens to slow clients? | Centrifugo disconnects them (155 of ~200 at an 8 KiB queue); nobody else notices, p50 39ms (§8.5). |
 | 8 | Does `latest_prices` persistence affect realtime latency? | No - the durable write runs concurrently with cache and publish and is not on the delivery path. Not stress-tested with an artificially slow Postgres (plan Scenario G); deferred. |
 
@@ -914,6 +914,84 @@ ramp rather than at Centrifugo.
 a container-name conflict. `--no-deps` fixed it; the row above is the re-run.
 Same failure class as everything in the review doc - the artefact under test
 was not the one the label claimed.
+
+### 8.11 Three Centrifugo nodes, and measuring at steady state
+
+Two things were done at once here, and the second corrected the first three
+sections' method.
+
+**The method correction.** Centrifugo's broadcast histogram is cumulative and
+the generator's update latency covered the whole run, so both included the
+connect ramp. The harness now snapshots each node's histogram when the ramp
+ends and reports the delta (`tools/bench/hist_delta.py`), and the generator
+discards update-latency samples before the ramp completes (`-measure-after`).
+Result: steady-state broadcast cost is slightly *higher* than the whole-run
+figure (39.5ms vs 33.1ms at 50k on one node) - during the ramp, broadcasts
+reached fewer subscribers and pulled the mean down. **The 8.10 knee was
+understated, not inflated.** It stands.
+
+**Three nodes.** `docker-compose.nodes.yml` adds `centrifugo-2` and
+`centrifugo-3` with identical Redis-engine configs; they discover each other
+through the engine (every node reports `num_nodes 3`, asserted before each
+run). Generators are pinned two-per-node. The price service still publishes
+to node 1 only; the engine delivers to the rest - the first time in this case
+study that the engine did its actual job.
+
+50,000 clients, every one subscribed to `ticker:NVDA`, steady state:
+
+| | 1 node | 3 nodes, per node |
+|---|---|---|
+| local NVDA subscribers | 50,000 | 16,668 / 16,379 / 16,007 |
+| **broadcast mean (steady)** | **39.5ms** | **48.8 / 44.5 / 54.7ms** |
+| broadcast p99 (steady) | ≤500ms | ≤500 / ≤500 / ≤1,000ms |
+| client update p50 / p99 | 662-676ms / 1.37-1.49s | 601-707ms / 1.44-1.56s |
+| Centrifugo CPU, steady | 83% | 36% / 33% / 31% |
+| Redis CPU | 7% | 10% |
+
+100,000 clients on 3 nodes: connections ~21k-22k per node, per-node broadcast
+117-133ms, client p50 ~1.5s / p99 ~4-5s, the VM at ~1000% - the same
+environment saturation as the single-node attempt, and reported the same way.
+
+**What this says.** Distribution worked exactly as designed: an even split,
+each node at a third of the CPU, Redis barely awake. And it changed nothing
+the client could see. Each node held a third of the subscribers and spent
+*longer*, not less, per broadcast than one node holding all of them. So
+**per-node broadcast time is not driven by local subscriber count**, and the
+"more nodes" lever - the first one 8.10 named - **did not pay on this
+machine.**
+
+Two readings, neither confirmed:
+
+- *Shared environment.* All 50,000 socket writes traverse the same Docker VM
+  network stack and the same ten cores whichever container issues them.
+  Splitting across containers adds no network or CPU capacity; if the cost
+  lives in the kernel's socket path rather than in Centrifugo's subscriber
+  walk, three nodes cannot show a gain here. This is plan §22 Q9 again, and it
+  is the reading the single-machine data cannot rule out.
+- *Broker semantics.* The histogram may measure each publication's time
+  including queueing behind the other ~30 publications of the same tick, on a
+  node that processes them serially; then it tracks per-tick work and total
+  connections rather than one channel's size. Only Centrifugo's hub source or
+  a per-publication test (one channel at a time instead of a 30-command batch)
+  would settle it.
+
+**What this changes in the conclusion.** The theoretical ordering stays -
+engine-distributed fanout by node is how Centrifugo scales, and the mechanism
+was verified working - but its *payoff is unmeasured*, and one attempt to
+measure it on one machine showed none. "More nodes" moves from "the first
+lever" to "the first lever to test on separate hosts". Sharding stays out of
+scope. The honest summary for the discussion: one node handles a hot channel
+cleanly to ~25k subscribers; between 25k and 50k the cost per broadcast rises
+~6x and reproduces; three nodes on the same machine did not lower it; and
+finding out whether nodes on separate machines do is the next experiment, not
+this one.
+
+**Harness notes.** The single-node steady-state run first died with no output
+because `seq 2 1` counts *down* - `NODES=1` built the node list as
+`centrifugo centrifugo-2 centrifugo-1`. It surfaced only after `recreate` was
+made to report its failure. Both fixed. That is the eighth silent-failure
+class in this project's log, and the reason every harness now refuses to
+exit quietly.
 
 ## 7. What this does not yet answer
 

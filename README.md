@@ -344,13 +344,13 @@ The other phase 3 scenarios, each in [`docs/measurements.md`](docs/measurements.
 - **Slow consumers**: Centrifugo disconnected 155 of ~200 deliberately-slow
   readers; everyone else's p50 stayed at 39ms.
 - **Celebrity ticker**: one node fans out cleanly to ~25,000 subscribers on a
-  single channel (6ms per broadcast); by 50,000 the cost is superlinear (37ms)
-  and the hot channel's tail separates from the rest - reproduced in a second
-  full run within 1% at 50k. 100,000 exceeded what
-  this laptop can measure honestly. The levers, in order: more Centrifugo
-  nodes (the engine distributes fanout by node), then sharding the channel
-  within a node - and not Redis sharding, which is the wrong layer. Not built;
-  written down with the numbers.
+  single channel (6ms per broadcast); by 50,000 the cost is ~40ms at steady
+  state and the hot channel's tail separates from the rest - reproduced in a
+  second full run. 100,000 exceeded what this laptop can measure honestly.
+  **Three Centrifugo nodes on the same machine split the CPU evenly and
+  changed nothing the client could see** - per-node broadcast time did not
+  fall - so whether more nodes help is a question for separate hosts, not
+  this one. Sharding is out of scope; Redis sharding is the wrong layer.
 - **Redis vs NATS broker**: indistinguishable at ~6 broker messages a second.
   The swap touched two config files and no code, and bought nothing.
 - **What the cache is for**: under 25k polling clients it cuts request p99

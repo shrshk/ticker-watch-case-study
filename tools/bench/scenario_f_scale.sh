@@ -23,7 +23,10 @@ if [ "${NODES}" -gt 1 ]; then
 fi
 ${COMPOSE_PUSH} build load-generator >/dev/null
 set_env TRANSPORT push; recreate price-service; wait_healthy price-service
-node_services=(centrifugo); for k in $(seq 2 "${NODES}"); do node_services+=("centrifugo-${k}"); done
+node_services=(centrifugo)
+# `seq 2 1` counts DOWN and yields "2 1" - which made NODES=1 try to recreate
+# centrifugo-2 and centrifugo-1 and fail. Only extend the list past node 1.
+if [ "${NODES}" -gt 1 ]; then for k in $(seq 2 "${NODES}"); do node_services+=("centrifugo-${k}"); done; fi
 recreate "${node_services[@]}"; for svc in "${node_services[@]}"; do wait_healthy "${svc}"; done
 if [ "${NODES}" -gt 1 ]; then
   sleep 12  # node discovery via the engine is periodic
