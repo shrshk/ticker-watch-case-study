@@ -745,6 +745,9 @@ Write it as the sequence the work actually followed. The arc is: simplest thing 
 
 ## 28. Definition of Done
 
+*Status (2026-09-21), item by item: 1 ✅ `make up` / `BROKER=nats` (§8.7 of measurements.md, zero code changed) · 2 ✅ register/login, session survives reload (refresh tokens) · 3 ✅ search by ticker and name · 4 ✅ add/remove · 5 ✅ volume + `db/demo.sql` seeded on first start · 6 ✅ snapshot before any event · 7 ✅ both transports, 5s, no refresh (§8.1, §8.12) · 8 ✅ `TRANSPORT` toggle behind one hook, visible in the status bar · 9 ✅ Scenario B table in README; polling degrades at ~30k (§2b) · 10 ✅ Redis-then-Postgres, never null (tests + §8.4) · 11 ✅ both guards (tests) · 12 ✅ `LATEST_PRICE_SOURCE` toggle, Scenario D both ways (§8.4) · 13 ✅ subscribe-buffer-snapshot-drain in `usePushPrices.js` and the generator.*
+
+
 1. `make up` starts the core stack; `make up BROKER=nats` swaps the broker with no application code change.
 2. Users can register and log in; the session survives a page reload.
 3. Users can search stocks by ticker and by company name.

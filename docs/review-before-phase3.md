@@ -261,8 +261,12 @@ Design:
 
 Why: it demonstrates the "persisted and re-used across restarts" requirement
 concretely on the reviewer's own machine, and it is what the scaffold's author
-evidently meant. Status: **deferred to after phase 3**, then done before
-`make submit`.
+evidently meant. Status: **done** (phase 4). `make db-dump`, `make db-restore`, `db/` mounted into
+`/docker-entrypoint-initdb.d`; verified by `make clean && make bootstrap` seeding a
+fresh volume with user1's six-stock watchlist. Two hazards found doing it: a bind
+mount of a missing file becomes a directory the entrypoint tries to run (mount the
+directory); and the price-service heartbeat healthcheck deadlocked bootstrap on a
+schema-less volume (heartbeat while waiting for the schema).
 
 ---
 
@@ -300,7 +304,10 @@ was built, what was measured and what was assumed. Before `make submit`:
   appending to them. The rule stands: no number appears that was not measured
   on this machine.
 
-Status: **deferred to after phase 3**, then done before `make submit`.
+Status: **done** (phase 4). README rewritten as the single arc with the brief-to-
+implementation table, architecture, a twelve-item assumptions register and the
+final batch; `/metrics` on both services (`shared/metrics.py`, `tests/test_metrics.py`);
+final Scenario B batch is `measurements.md` §8.12 with steady-state CPU.
 
 ---
 

@@ -154,8 +154,12 @@ submit-check: ## Refuse to package a .env left in test/benchmark mode
 submit: submit-check ## Package the project into solution.zip (runs submit-check first)
 	rm -f solution.zip
 	zip -r solution.zip . \
-	    -x '*.git/*' '*node_modules/*' '*__pycache__/*' '*.venv/*' \
-	       '*.pytest_cache/*' '*.ruff_cache/*' '*.idea/*' 'solution.zip'
+	    -x '.git/*' '*/.git/*' '*node_modules/*' '*__pycache__/*' '*/.venv/*' '.venv/*' \
+	       '.run/*' '*/.run/*' '*.pytest_cache/*' '*.ruff_cache/*' '*.idea/*' '*.DS_Store' \
+	       'solution.zip'
+	@echo "solution.zip: $$(unzip -l solution.zip | tail -1 | awk '{print $$2}') files, $$(du -h solution.zip | cut -f1)"
+	@if unzip -l solution.zip | grep -qE 'node_modules|\.git/|\.run/|\.venv/|__pycache__'; then \
+	    echo "REFUSING: solution.zip contains build or benchmark artefacts" >&2; rm -f solution.zip; exit 1; fi
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'

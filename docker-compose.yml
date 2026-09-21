@@ -38,10 +38,12 @@ services:
       POSTGRES_PASSWORD: postgres
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      # Loaded by the official image ONLY when the data directory is empty -
-      # a reviewer's first start gets the demo state; an existing volume is
-      # never touched. Regenerate with `make db-dump`; never hand-edit.
-      - ./db/demo.sql:/docker-entrypoint-initdb.d/10-demo.sql:ro
+      # Everything in db/ is loaded by the official image ONLY when the data
+      # directory is empty - a reviewer's first start gets the demo state; an
+      # existing volume is never touched. The whole directory is mounted, not
+      # the file: a bind mount of a missing file becomes an empty directory
+      # named demo.sql, which the entrypoint tries to run and dies on.
+      - ./db:/docker-entrypoint-initdb.d:ro
     ports:
       # Non-default host port so this stack can run beside another local
       # Postgres. Traffic between containers still uses 5432.

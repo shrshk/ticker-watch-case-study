@@ -987,6 +987,45 @@ made to report its failure. Both fixed. That is the eighth silent-failure
 class in this project's log, and the reason every harness now refuses to
 exit quietly.
 
+### 8.12 Final batch - the reference Scenario B table
+
+Run last, cold, after the pre-submission code changes, with the harness that
+reports steady-state CPU alongside peak. Same method as 8.3: simulated prices,
+30% change ratio, seed 1, 4 workers, 45s runs, poll with publishing off and
+push with it on, one batch. **This is the table the README quotes.**
+
+| clients | transport | HTTP req/s | upd p50 | upd p95 | upd p99 | errors | API CPU peak / **steady** | DB CPU peak / **steady** | Redis | Centrifugo peak / steady | B/client/min |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 5,000 | poll | 943/s | 2448ms | 4769ms | 4955ms | 0 | 109% / 84% | 28% / 19% | 3% | 0% / 0% | 16,559 |
+| 5,000 | **push** | 111.0/s | **70ms** | **135ms** | **164ms** | 0 | 106% / **2%** | 27% / **1%** | 4% | 39% / 10% | **6,280** |
+| 10,000 | poll | 1883/s | 2552ms | 4768ms | 4946ms | 1 | 277% / 192% | 95% / 58% | 9% | 0% / 0% | 16,536 |
+| 10,000 | **push** | 221.7/s | **133ms** | **286ms** | **331ms** | 0 | 242% / **2%** | 26% / **1%** | 7% | 59% / 16% | **6,268** |
+| 20,000 | poll | 3763/s | 2586ms | 4770ms | 4966ms | 0 | 398% / 375% | 114% / 104% | 11% | 1% / 0% | 16,528 |
+| 20,000 | **push** | 439.5/s | **273ms** | **671ms** | **734ms** | 0 | 358% / **2%** | 68% / **0%** | 10% | 131% / 20% | **6,598** |
+| 25,000 | poll | 2524/s | 4395ms | 13418ms | 19265ms | 452 | 412% / 401% | 105% / 88% | 11% | 2% / 0% | 8,898 |
+| 25,000 | **push** | 549.6/s | **330ms** | **602ms** | **894ms** | 0 | 332% / **5%** | 61% / **0%** | 8% | 118% / 26% | **6,397** |
+
+**What the steady-state columns add.** Sections 8.3 and 8.8 could only show
+peak CPU, and push's peak is its connect ramp - every client takes one
+snapshot - which made the API columns look nearly equal across transports.
+Measured after the ramp, the API under push is at 2-5% and Postgres at 0-1%,
+against 81-401% and 24-104% under polling at the same client counts. That is
+the per-request cost argument from section 3, finally visible as a number
+rather than an inference: once connected, a push client costs the API
+nothing until it reconnects.
+
+**The 25,000 polling row collapsed here** (2,524 req/s, p50 4.4s, 452 errors)
+where 8.3 had it clean at 4,706 req/s and 2b had 30,000 clean. Same code,
+same configuration, several hours later in a session that had run every
+scenario in this document; the machine's ceiling drifted down, as section 5
+warned it does. Within this batch the comparison holds regardless: 25,000
+push clients ran clean at 330ms p50 while 25,000 polling clients did not run
+at all.
+
+Update latency and egress reproduce 8.3 within a few percent at every row:
+push 70 / 133 / 273 / 330ms p50 against 72 / 134 / 265 / 344ms, egress 6.3-6.6k
+against 6.0-6.8k bytes per client per minute.
+
 ## 7. What this does not yet answer
 
 Deliberately not measured yet, because it belongs to phase 3:

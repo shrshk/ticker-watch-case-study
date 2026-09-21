@@ -90,6 +90,13 @@ class PriceService:
     # -- startup ----------------------------------------------------------
 
     async def start(self) -> None:
+        # Alive from the first moment: the healthcheck reads this file, and a
+        # process waiting for `make migrate` is healthy-but-unprovisioned, not
+        # dead. Requiring ticks before health deadlocked `make bootstrap` on a
+        # fresh volume - up --wait needs health, health needs ticks, ticks need
+        # the schema, and migrate runs after up. Same lesson as the API's
+        # /health: readiness must not require provisioning.
+        HEARTBEAT.touch()
         await db.connect(min_size=1, max_size=4)
         await cache.register_scripts()
         await self._wait_for_schema()
@@ -117,6 +124,7 @@ class PriceService:
                     f"{timeout_seconds:.0f}s; run 'make migrate'"
                 )
             logger.info("waiting for the schema; run 'make migrate'")
+            HEARTBEAT.touch()
             await asyncio.sleep(2.0)
 
     async def _sync_catalog(self) -> None:
