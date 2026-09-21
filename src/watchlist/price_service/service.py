@@ -28,21 +28,21 @@ because the cache is what clients read.
 import asyncio
 import csv
 import datetime as dt
-import logging
 import pathlib
 import time
 
 import httpx
 
+from watchlist.modules.prices import prices_controller
+from watchlist.modules.securities import securities_controller
 from watchlist.price_service.sources.albert import AlbertSource
 from watchlist.price_service.sources.base import PriceSource
 from watchlist.price_service.sources.simulated import SimulatedSource
 from watchlist.shared import cache, db
-from watchlist.shared.repo import prices as price_repo
-from watchlist.shared.repo import securities as security_repo
+from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 SEED_PRICES = pathlib.Path(__file__).resolve().parents[3] / "seed" / "prices.csv"
 
@@ -134,14 +134,15 @@ class PriceService:
 
         async with db.pool().acquire() as conn:
             if rows:
-                await security_repo.upsert_many(conn, rows)
+                await securities_controller.upsert_many(conn, rows)
             self._ticker_to_id = {
-                r["ticker"]: r["id"] for r in await security_repo.all_tickers(conn)
+                r["ticker"]: r["id"] for r in await securities_controller.all_tickers(conn)
             }
         if not self._ticker_to_id:
             raise RuntimeError("no securities in the catalog; cannot price anything")
 
-    def _catalog_from_seed(self) -> list[tuple[str, str]]:
+    @staticmethod
+    def _catalog_from_seed() -> list[tuple[str, str]]:
         seed = SEED_PRICES.parent / "securities.csv"
         if not seed.exists():
             return []
@@ -160,7 +161,7 @@ class PriceService:
         quietly changes which numbers you are reporting.
         """
         async with db.pool().acquire() as conn:
-            stored = await price_repo.distinct_sources(conn)
+            stored = await prices_controller.distinct_sources(conn)
         foreign = [s for s in stored if s != self._settings.price_source]
         if foreign:
             raise SourceMismatch(
@@ -176,7 +177,7 @@ class PriceService:
     async def _starting_prices(self) -> dict[str, float]:
         """Real values to random-walk from: the database first, then the seed file."""
         async with db.pool().acquire() as conn:
-            rows = await price_repo.all_with_tickers(conn)
+            rows = await prices_controller.all_with_tickers(conn)
         if rows:
             logger.info("simulated: starting from %d prices in latest_prices", len(rows))
             return {r["ticker"]: float(r["price"]) for r in rows}
@@ -196,7 +197,7 @@ class PriceService:
         """After a Redis restart the cache is empty; refill it so the first
         snapshot read after recovery does not stampede Postgres."""
         async with db.pool().acquire() as conn:
-            rows = await price_repo.all_with_tickers(conn)
+            rows = await prices_controller.all_with_tickers(conn)
         warmed = 0
         for row in rows:
             payload = {
@@ -323,7 +324,7 @@ class PriceService:
         ]
         try:
             async with db.pool().acquire() as conn:
-                await price_repo.upsert_many(conn, rows)
+                await prices_controller.upsert_many(conn, rows)
             self.stats["postgres_upserts"] += len(rows)
         except OSError:
             # A Postgres stall must not stop the cache write or, later, the

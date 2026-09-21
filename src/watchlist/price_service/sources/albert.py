@@ -12,14 +12,13 @@ is a design constraint rather than an afterthought:
 At 99 tickers that is one call per interval, forever, for any number of users.
 """
 
-import logging
-
 import httpx
 
 from watchlist.price_service.sources.base import PriceSource
+from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class AlbertSource(PriceSource):

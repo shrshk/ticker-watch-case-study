@@ -7,8 +7,9 @@ import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from watchlist.modules.auth import auth_handler
+from watchlist.modules.auth.auth_schema import User
 from watchlist.shared import db
-from watchlist.shared.repo import users as user_repo
 from watchlist.shared.security import decode_token
 
 bearer = HTTPBearer(auto_error=False)
@@ -22,7 +23,7 @@ async def connection() -> AsyncIterator[asyncpg.Connection]:
 async def current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     conn: asyncpg.Connection = Depends(connection),
-) -> asyncpg.Record:
+) -> User:
     if credentials is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing bearer token")
     try:
@@ -30,7 +31,7 @@ async def current_user(
     except jwt.PyJWTError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid token") from exc
 
-    user = await user_repo.get_by_id(conn, int(payload["sub"]))
+    user = await auth_handler.get_user(conn, int(payload["sub"]))
     if user is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user no longer exists")
     return user

@@ -22,9 +22,10 @@ import asyncpg
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "src"))
 
-from watchlist.shared import cache, db, price_reader  # noqa: E402
-from watchlist.shared.repo import securities as security_repo  # noqa: E402
-from watchlist.shared.repo import watchlists as watchlist_repo  # noqa: E402
+from watchlist.modules.prices import prices_handler
+from watchlist.modules.securities import securities_controller  # noqa: E402
+from watchlist.modules.watchlist import watchlist_controller  # noqa: E402
+from watchlist.shared import cache, db  # noqa: E402
 from watchlist.shared.settings import get_settings  # noqa: E402
 
 SEARCH_TERMS = ["NV", "AAPL", "tesla", "micro", "A", "GOOG", "bank", "SYN0"]
@@ -96,12 +97,12 @@ async def run(iterations: int, warmup: int) -> None:
 
             term = rng.choice(SEARCH_TERMS)
             started = time.perf_counter()
-            await security_repo.search(conn, term)
+            await securities_controller.search(conn, term)
             if measuring:
                 search.record(time.perf_counter() - started)
 
             started = time.perf_counter()
-            members = await watchlist_repo.members(conn, watchlist_id)
+            members = await watchlist_controller.members(conn, watchlist_id)
             if measuring:
                 membership.record(time.perf_counter() - started)
 
@@ -109,13 +110,13 @@ async def run(iterations: int, warmup: int) -> None:
 
             settings.latest_price_source = "redis"
             started = time.perf_counter()
-            await price_reader.read(conn, pairs)
+            await prices_handler.read_snapshot(conn, pairs)
             if measuring:
                 snapshot_redis.record(time.perf_counter() - started)
 
             settings.latest_price_source = "postgres"
             started = time.perf_counter()
-            await price_reader.read(conn, pairs)
+            await prices_handler.read_snapshot(conn, pairs)
             if measuring:
                 snapshot_pg.record(time.perf_counter() - started)
 

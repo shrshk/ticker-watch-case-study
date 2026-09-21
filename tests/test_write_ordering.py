@@ -7,8 +7,8 @@ older price after a newer one, and neither store detects this on its own.
 
 import datetime as dt
 
+from watchlist.modules.prices import prices_controller
 from watchlist.shared import cache
-from watchlist.shared.repo import prices as price_repo
 
 NEWER = dt.datetime(2026, 9, 21, 12, 0, 0, tzinfo=dt.UTC)
 OLDER = dt.datetime(2026, 9, 21, 11, 0, 0, tzinfo=dt.UTC)
@@ -23,19 +23,19 @@ async def _security(conn, ticker: str = "TEST") -> int:
 class TestPostgresGuard:
     async def test_older_write_is_rejected(self, conn):
         sid = await _security(conn)
-        await price_repo.upsert_many(conn, [(sid, 100.0, NEWER, "api")])
-        await price_repo.upsert_many(conn, [(sid, 50.0, OLDER, "api")])
+        await prices_controller.upsert_many(conn, [(sid, 100.0, NEWER, "api")])
+        await prices_controller.upsert_many(conn, [(sid, 50.0, OLDER, "api")])
 
-        row = (await price_repo.get_many(conn, [sid]))[0]
+        row = (await prices_controller.get_many(conn, [sid]))[0]
         assert row["price"] == 100.0, "an older replay overwrote a newer price"
         assert row["effective_at"] == NEWER
 
     async def test_newer_write_wins(self, conn):
         sid = await _security(conn)
-        await price_repo.upsert_many(conn, [(sid, 50.0, OLDER, "api")])
-        await price_repo.upsert_many(conn, [(sid, 100.0, NEWER, "api")])
+        await prices_controller.upsert_many(conn, [(sid, 50.0, OLDER, "api")])
+        await prices_controller.upsert_many(conn, [(sid, 100.0, NEWER, "api")])
 
-        row = (await price_repo.get_many(conn, [sid]))[0]
+        row = (await prices_controller.get_many(conn, [sid]))[0]
         assert row["price"] == 100.0
         assert row["effective_at"] == NEWER
 

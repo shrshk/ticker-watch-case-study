@@ -8,8 +8,7 @@ import asyncpg
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "src"))
 
-from watchlist.shared.repo import users as user_repo  # noqa: E402
-from watchlist.shared.security import hash_password  # noqa: E402
+from watchlist.modules.auth import auth_handler  # noqa: E402
 from watchlist.shared.settings import get_settings  # noqa: E402
 
 DEMO_USERS = [
@@ -22,10 +21,18 @@ async def main() -> None:
     conn = await asyncpg.connect(dsn=get_settings().postgres_dsn)
     try:
         for username, password, email, first, last in DEMO_USERS:
-            if await user_repo.get_by_username(conn, username):
+            try:
+                await auth_handler.register(
+                    conn,
+                    username=username,
+                    password=password,
+                    email=email,
+                    first_name=first,
+                    last_name=last,
+                )
+            except auth_handler.UsernameTakenError:
                 print(f"{username} already exists")
                 continue
-            await user_repo.create(conn, username, hash_password(password), email, first, last)
             print(f"created {username} (password: {password})")
     finally:
         await conn.close()

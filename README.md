@@ -115,6 +115,52 @@ The two Python services share one image and one dependency set but run as
 separate processes with separate lifecycles. Splitting the image is a Dockerfile
 change, not a redesign.
 
+### Code layout
+
+Layered by domain, not by type. Every feature is a module with the same three
+files, so a reader looking for "how does search work" opens one directory
+rather than three.
+
+```
+src/watchlist/
+  modules/{auth,securities,watchlist,prices}/
+      {domain}_controller.py   # raw SQL, no business logic
+      {domain}_handler.py      # business logic, orchestration, domain errors
+      {domain}_schema.py       # pydantic request/response models
+  api/
+      main.py                  # app, lifespan, /health
+      deps.py                  # connection pool, current user
+      routers/{domain}.py      # transport only: HTTP in, handler out
+  price_service/               # the tick loop and its source adapters
+  shared/                      # settings, db pool, cache, logging, security
+```
+
+**Routers contain no queries and no logic.** They call a handler and map domain
+errors to status codes. Handlers raise `UsernameTakenError`, not
+`HTTPException` — which status code a failure deserves is a transport concern,
+and a handler that knows about HTTP cannot be called from a worker, a CLI or a
+test without dragging FastAPI along. `tests/test_handlers.py` imports no
+FastAPI at all; that is the check that the layering is real.
+
+**Classes where there is a workflow, functions everywhere else.** Controllers
+and most handlers are module-level functions. A class appears where several
+steps carry state between them:
+
+| class | why |
+|---|---|
+| `PriceService` | the tick lifecycle — catalog sync, source guard, cache warm, then the loop |
+| `SnapshotReader` | per-read counters and read provenance threaded through cache-then-database |
+| `WatchlistView` | resolve watchlist, load members, price them, assemble |
+| `PriceSource` | an ABC with two implementations, `AlbertSource` and `SimulatedSource` |
+
+Each follows the same shape: constructor takes identity and dependencies, one
+public entry point that reads as the sequence of steps, private `_verb` methods
+for each step, and pure helpers as `@staticmethod`.
+
+**One way to get a logger.** `from watchlist.shared.logging import get_logger`.
+A bare `import logging` is a lint error (ruff `TID251`), so a later move to
+structured logging is a single-file change.
+
 ### Why three writes have three different scopes
 
 Each tick does three things, and each has a deliberately different scope:
@@ -459,7 +505,7 @@ make up-detached && make migrate   # the integration tests need the stack
 make test
 ```
 
-34 tests. They run against a separate `watchlist_test` database created and
+52 tests. They run against a separate `watchlist_test` database created and
 dropped per run, so a test run never touches the demo data. They cover the
 claims this README makes rather than the code's surface area:
 
@@ -470,6 +516,7 @@ claims this README makes rather than the code's surface area:
 | `test_auth.py` | Password round-trip, a malformed hash is a failed login not a crash, forged and expired tokens are rejected, registration creates a default watchlist |
 | `test_search.py` | `NV` → NVDA/NVAX/NVR, exact-ticker ranking, name matching, case insensitivity |
 | `test_simulated_source.py` | Prices stay near real values, the seed reproduces a walk, a price never reaches zero, the change ratio is honoured |
+| `test_handlers.py` | The handler layer: domain errors, watchlist isolation between users, add/remove semantics, and that a security with no price keeps its row |
 
 Lint and format with `make lint` / `make format` (ruff, line length 100).
 

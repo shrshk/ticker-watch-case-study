@@ -10,13 +10,13 @@ publishing 99 updates per tick and publishing 30, and it is the main lever on
 egress in every load scenario. Report it alongside any benchmark.
 """
 
-import logging
 import random
 
 from watchlist.price_service.sources.base import PriceSource
+from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class SimulatedSource(PriceSource):

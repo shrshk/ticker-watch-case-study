@@ -5,7 +5,7 @@ import datetime as dt
 import jwt
 import pytest
 
-from watchlist.shared.repo import users as user_repo
+from watchlist.modules.auth import auth_controller
 from watchlist.shared.security import decode_token, hash_password, issue_token, verify_password
 from watchlist.shared.settings import get_settings
 
@@ -53,16 +53,16 @@ class TestTokens:
 
 class TestUserCreation:
     async def test_registering_creates_a_default_watchlist(self, conn):
-        user = await user_repo.create(conn, "alice", hash_password("pw"), None, "Alice", "A")
+        user = await auth_controller.create(conn, "alice", hash_password("pw"), None, "Alice", "A")
         count = await conn.fetchval(
             "SELECT count(*) FROM watchlists WHERE user_id = $1", user["id"]
         )
         assert count == 1
 
     async def test_default_watchlist_id_is_stable(self, conn):
-        user = await user_repo.create(conn, "bob", hash_password("pw"), None, "Bob", "B")
-        first = await user_repo.default_watchlist_id(conn, user["id"])
-        second = await user_repo.default_watchlist_id(conn, user["id"])
+        user = await auth_controller.create(conn, "bob", hash_password("pw"), None, "Bob", "B")
+        first = await auth_controller.default_watchlist_id(conn, user["id"])
+        second = await auth_controller.default_watchlist_id(conn, user["id"])
         assert first == second
 
     async def test_default_watchlist_is_created_for_a_seeded_user(self, conn):
@@ -70,4 +70,4 @@ class TestUserCreation:
         uid = await conn.fetchval(
             "INSERT INTO users (username, password_hash) VALUES ('seeded', 'x') RETURNING id"
         )
-        assert await user_repo.default_watchlist_id(conn, uid) is not None
+        assert await auth_controller.default_watchlist_id(conn, uid) is not None

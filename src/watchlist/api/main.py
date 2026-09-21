@@ -12,9 +12,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from watchlist.api.routers import auth, securities, watchlist
+from watchlist.modules.prices import prices_controller
 from watchlist.shared import cache, db
 from watchlist.shared.logging import configure_logging
-from watchlist.shared.repo import prices as price_repo
 from watchlist.shared.settings import get_settings
 
 logger = configure_logging("api")
@@ -72,7 +72,7 @@ async def health() -> dict:
                 # environment. PRICE_SOURCE belongs to the price service; the
                 # API only ever had a copy, and a copy goes stale the moment
                 # the two are configured apart.
-                sources = await price_repo.distinct_sources(conn)
+                sources = await prices_controller.distinct_sources(conn)
     except (OSError, asyncpg.PostgresError, RuntimeError) as exc:
         checks["postgres"] = f"error: {type(exc).__name__}"
 

@@ -1,24 +1,21 @@
-"""Stock search."""
+"""Stock search. Transport only."""
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from watchlist.api.deps import connection, current_user
-from watchlist.api.schemas import SecurityOut
-from watchlist.shared.repo import securities as security_repo
+from watchlist.modules.auth.auth_schema import User
+from watchlist.modules.securities import securities_handler
+from watchlist.modules.securities.securities_schema import Security
 
 router = APIRouter(prefix="/securities", tags=["securities"])
 
 
-@router.get("/search", response_model=list[SecurityOut])
+@router.get("/search", response_model=list[Security])
 async def search(
     q: str = Query(min_length=1, max_length=64),
     limit: int = Query(default=20, ge=1, le=100),
     conn: asyncpg.Connection = Depends(connection),
-    _: asyncpg.Record = Depends(current_user),
-) -> list[SecurityOut]:
-    rows = await security_repo.search(conn, q.strip(), limit)
-    return [
-        SecurityOut(id=r["id"], ticker=r["ticker"], name=r["name"], exchange=r["exchange"])
-        for r in rows
-    ]
+    _: User = Depends(current_user),
+) -> list[Security]:
+    return await securities_handler.search(conn, q, limit)

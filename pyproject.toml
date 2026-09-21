@@ -34,7 +34,16 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "G", "LOG"]
+select = ["E", "F", "I", "UP", "B", "G", "LOG", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# One way to get a logger, so a later swap to structured logging is a
+# single-file change. Mirrors the rule the OTTO codebase enforces.
+"logging".msg = "Use watchlist.shared.logging.get_logger instead."
+
+[tool.ruff.lint.per-file-ignores]
+"src/watchlist/shared/logging.py" = ["TID251"]
+"tools/**" = ["TID251"]
 
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's whole dependency system is calls in argument defaults.

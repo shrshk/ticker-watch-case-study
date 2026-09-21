@@ -6,8 +6,8 @@ and never returns null for a price that exists.
 
 import datetime as dt
 
-from watchlist.shared import cache, price_reader
-from watchlist.shared.repo import prices as price_repo
+from watchlist.modules.prices import prices_controller, prices_handler
+from watchlist.shared import cache
 from watchlist.shared.settings import get_settings
 
 EFFECTIVE_AT = dt.datetime(2026, 9, 21, 12, 0, 0, tzinfo=dt.UTC)
@@ -20,7 +20,7 @@ async def _security(conn, ticker: str) -> int:
 
 
 async def test_empty_watchlist_costs_nothing(conn):
-    snapshot = await price_reader.read(conn, [])
+    snapshot = await prices_handler.read_snapshot(conn, [])
     assert snapshot.prices == {}
     assert snapshot.cache_hits == 0
 
@@ -35,7 +35,7 @@ async def test_cache_hit_does_not_touch_postgres(conn, redis_client):
     }
     await cache.set_price_if_newer("HIT", payload, EFFECTIVE_AT.isoformat(), 60)
 
-    snapshot = await price_reader.read(conn, [(sid, "HIT")])
+    snapshot = await prices_handler.read_snapshot(conn, [(sid, "HIT")])
 
     assert snapshot.cache_hits == 1
     assert snapshot.cache_misses == 0
@@ -44,9 +44,9 @@ async def test_cache_hit_does_not_touch_postgres(conn, redis_client):
 
 async def test_cache_miss_falls_through_to_postgres(conn):
     sid = await _security(conn, "MISS")
-    await price_repo.upsert_many(conn, [(sid, 7.5, EFFECTIVE_AT, "api")])
+    await prices_controller.upsert_many(conn, [(sid, 7.5, EFFECTIVE_AT, "api")])
 
-    snapshot = await price_reader.read(conn, [(sid, "MISS")])
+    snapshot = await prices_handler.read_snapshot(conn, [(sid, "MISS")])
 
     assert snapshot.cache_hits == 0
     assert snapshot.cache_misses == 1
@@ -63,9 +63,9 @@ async def test_partial_hit_fetches_only_the_missing_rows(conn, redis_client):
         "source": "api",
     }
     await cache.set_price_if_newer("HOT", payload, EFFECTIVE_AT.isoformat(), 60)
-    await price_repo.upsert_many(conn, [(cold, 2.0, EFFECTIVE_AT, "api")])
+    await prices_controller.upsert_many(conn, [(cold, 2.0, EFFECTIVE_AT, "api")])
 
-    snapshot = await price_reader.read(conn, [(hot, "HOT"), (cold, "COLD")])
+    snapshot = await prices_handler.read_snapshot(conn, [(hot, "HOT"), (cold, "COLD")])
 
     assert snapshot.cache_hits == 1
     assert snapshot.cache_misses == 1
@@ -83,12 +83,12 @@ async def test_postgres_read_path_bypasses_the_cache(conn, redis_client, monkeyp
         "source": "api",
     }
     await cache.set_price_if_newer("BYPASS", stale, EFFECTIVE_AT.isoformat(), 60)
-    await price_repo.upsert_many(conn, [(sid, 3.0, EFFECTIVE_AT, "api")])
+    await prices_controller.upsert_many(conn, [(sid, 3.0, EFFECTIVE_AT, "api")])
 
     settings = get_settings()
     monkeypatch.setattr(settings, "latest_price_source", "postgres")
 
-    snapshot = await price_reader.read(conn, [(sid, "BYPASS")])
+    snapshot = await prices_handler.read_snapshot(conn, [(sid, "BYPASS")])
 
     assert snapshot.read_path == "postgres"
     assert snapshot.cache_hits == 0
@@ -98,5 +98,5 @@ async def test_postgres_read_path_bypasses_the_cache(conn, redis_client, monkeyp
 async def test_a_security_with_no_price_yields_no_entry(conn):
     """ATVI is in the vendor catalog and has no price. The client shows a dash."""
     sid = await _security(conn, "ATVI")
-    snapshot = await price_reader.read(conn, [(sid, "ATVI")])
+    snapshot = await prices_handler.read_snapshot(conn, [(sid, "ATVI")])
     assert sid not in snapshot.prices
