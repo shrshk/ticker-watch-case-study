@@ -5,7 +5,9 @@ Users log in, search stocks by ticker or company name, keep a watchlist, and see
 prices refresh every 5 seconds.
 
 The original case study brief is preserved at
-[`archive/ORIGINAL_README.md`](archive/ORIGINAL_README.md).
+[`archive/ORIGINAL_README.md`](archive/ORIGINAL_README.md). The implementation plan the work
+followed - with the sections that measurement overturned corrected in place and
+dated - is [`plans/ticker-watch-plan.md`](plans/ticker-watch-plan.md).
 
 ---
 
