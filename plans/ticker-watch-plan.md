@@ -346,7 +346,7 @@ Guarding Postgres alone is worse than guarding neither — the cache could then 
 LATEST_PRICE_SOURCE=redis|postgres
 ```
 
-`postgres` bypasses the cache entirely. This exists to make the caching decision measurable rather than asserted: run Scenario D (reconnect storm — 200k snapshot lookups in a burst) both ways and report numbers. "Redis was Nx faster under a 200k-lookup burst" beats "Redis is faster."
+`postgres` bypasses the cache entirely. This exists to make the caching decision measurable rather than asserted: run Scenario D (reconnect storm — 200k snapshot lookups in a burst) both ways and report numbers. "Redis was Nx faster under a 200k-lookup burst" beats "Redis is faster." *Measured (2026-09-21, §8.4/§8.8 of measurements.md): N < 1 for the burst; under 25k sustained polling the cache cuts p99 3.5x and DB CPU 17 points at the cost of ~30 API points. On push it is nearly idle - a production version on push could drop it.*
 
 ---
 
@@ -380,7 +380,7 @@ Because the price service publishes through the Centrifugo API, no application c
 
 What the comparison should establish:
 
-* whether broker and cache traffic on one Redis instance measurably degrades snapshot latency under burst
+* whether broker and cache traffic on one Redis instance measurably degrades snapshot latency under burst *- measured: no (§8.7). Redis CPU 3.7% with the broker, 3.6% without; every latency column within noise.*
 * how much of any degradation is contention versus raw throughput
 * what is given up with NATS: the NATS broker provides at-most-once pub/sub only, with no channel history or recovery — acceptable here because §10 re-fetches a snapshot on reconnect anyway
 

@@ -337,6 +337,21 @@ clients, at about **0.12ms of Centrifugo CPU each**, against the 0.44ms the
 phase 2 arithmetic said it had to beat. HTTP request rate under push is one
 snapshot per connection and then nothing.
 
+The other phase 3 scenarios, each in [`docs/measurements.md`](docs/measurements.md) §8:
+
+- **Reconnect storm** (5,000 at once): p99 snapshot 22ms, zero errors — and
+  the Redis cache made it *no faster* than reading Postgres directly.
+- **Slow consumers**: Centrifugo disconnected 155 of ~200 deliberately-slow
+  readers; everyone else's p50 stayed at 39ms.
+- **Celebrity ticker**: fanout cost is linear in subscribers, ~6ms to reach
+  20,000; the hot channel's tail is within 5% of the average. Sharding is
+  written down as the lever for ~500k, and not built.
+- **Redis vs NATS broker**: indistinguishable at ~6 broker messages a second.
+  The swap touched two config files and no code, and bought nothing.
+- **What the cache is for**: under 25k polling clients it cuts request p99
+  3.5x and takes 17 points off Postgres while adding ~30 to the API. Under
+  push it is nearly idle. A production version on push could drop it.
+
 **What push will cost, stated honestly:** connection state, reconnect handling,
 the snapshot/subscribe ordering problem, slow-consumer management, and one more
 component to run. Phase 3 runs identical load under both and publishes the

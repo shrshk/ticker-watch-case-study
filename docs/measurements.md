@@ -704,6 +704,116 @@ is what the harness now reports; the client-side figure is printed as
 "client-observed, not trusted". Another instance of the phase 2 rule: the
 broker's counter, not the client's inference.
 
+### 8.6 Scenario F - the celebrity ticker
+
+Every push client additionally subscribes to `ticker:NVDA`, so that channel
+carries one subscriber per connection. Per-channel broadcast cost is
+Centrifugo's own `node_broadcast_duration_seconds` histogram, reset per run;
+the client-side view is NVDA's update latency against all channels.
+
+| clients (= NVDA subscribers) | NVDA msgs | all-channel upd p99 | **NVDA upd p50 / p99** | Centrifugo CPU | broadcast duration: mean / p95 / p99 |
+|---|---|---|---|---|---|
+| 5,000 | 13,461 | 167ms | **91 / 168ms** | 49% | 0.73ms / ≤5ms / ≤10ms |
+| 10,000 | 20,000 | 268ms | **177 / 279ms** | 58% | 2.20ms / ≤25ms / ≤25ms |
+| 20,000 | 40,000 | 730ms | **523 / 770ms** | 137% | 6.43ms / ≤50ms / ≤100ms |
+
+**Per-channel broadcast cost is linear in subscribers** - about 0.3µs per
+subscriber per publication, 6.4ms to fan one NVDA change out to 20,000
+connections. That is the one place a hot ticker costs more than a cold one,
+and at this size it is small.
+
+**The hot channel does not dominate the tail.** NVDA's p99 is within 5% of the
+all-channel p99 at every size (168 vs 167, 279 vs 268, 770 vs 730ms). The
+latency growth seen in Scenario B is total fanout volume across all channels,
+not the celebrity. Plan §12's "solved by construction" holds for publish
+*and*, at this scale, for fanout.
+
+**Where it would stop holding.** Linear extrapolation puts one broadcast to
+500,000 subscribers near 160ms, on top of everything else the node is doing.
+That is the point at which sharding the hot channel (`ticker:NVDA:{0..N}`,
+clients hashed across shards) trades N publishes for parallel fanout. Not
+built: the measurement does not ask for it below ~100k subscribers per
+channel, and the plan's rule is to build against a measured need. It is
+written down here so the trigger is known rather than rediscovered.
+
+Two honest limits of this run: NVDA changed only 2-3 times per 45s window at
+the 30% ratio, so the per-channel latency figures rest on a few thousand
+observations per row; and Centrifugo's histogram covers all channels, not
+NVDA alone - the per-subscriber cost is inferred from how the mean moves with
+the hot channel's size while the other 98 channels stay roughly constant.
+
+### 8.7 Scenario I - Redis engine vs NATS broker
+
+The same 10,000-client push load and the same 5,000-client reconnect storm,
+under Centrifugo's Redis engine and then a NATS broker. Nothing in the
+application changed between the two rows: a different Centrifugo config file
+and one more container.
+
+| broker | upd p50 | upd p95 | upd p99 | storm snapshot p50 / p95 / p99 | errors | Redis CPU | Centrifugo CPU |
+|---|---|---|---|---|---|---|---|
+| Redis engine | 127ms | 267ms | 307ms | 1.4 / 7.5 / 22.0ms | 0 | 3.7% | 58% |
+| NATS broker | 133ms | 247ms | 267ms | 1.5 / 6.7 / 22.3ms | 0 | 3.6% | 59% |
+
+**Indistinguishable.** Every column is within run-to-run noise. Plan §11
+called Redis-serving-as-both-cache-and-broker "the most interesting scaling
+question in the system"; measured, it is not a question at this publish rate.
+Thirty changed tickers per 5-second tick is about six broker messages a
+second, and Redis CPU is 3.7% with the broker on it and 3.6% without. The
+cache and the broker do not contend because neither is doing anything Redis
+notices.
+
+What the swap did prove is the claim the architecture made about itself: the
+price service publishes through Centrifugo's HTTP API, so changing the broker
+touched two config files and zero lines of application code. NATS gives up
+history and recovery; the snapshot-on-reconnect path never used them, so
+nothing was lost. It also bought nothing. The plan's own rule applies - adding
+a second messaging system to move six messages a second would be architecture
+for its own sake - and now there is a table to say so.
+
+### 8.8 What the Redis cache is actually for
+
+Section 1 showed the cache *slower* than Postgres for a single snapshot;
+section 8.4 showed it no faster under a 5,000-request burst. The remaining
+case for it was offload under sustained load. Measured at 25,000 polling
+clients, the cache bypassed and then in front:
+
+| read path | req/s | req p50 | **req p99** | API CPU | **DB CPU** | API + DB |
+|---|---|---|---|---|---|---|
+| postgres (bypassed) | 4,713 | 5.0ms | **118.8ms** | 316% | **147%** | 463% |
+| redis (cache) | 4,712 | 3.4ms | **33.7ms** | 349% | **129%** | 478% |
+
+**Under polling the cache earns a modest keep, and not as a CPU saver.** It
+takes 17 points off Postgres and cuts request p99 by 3.5x - but the API pays
+~30 points to do the `MGET` and decode itself, so total CPU is slightly
+*higher* with the cache. It is a tail-latency and database-headroom device.
+At 98 rows it can never be a throughput device, because the thing it fronts
+is already an in-memory point lookup.
+
+**Under push it is nearly idle.** The snapshot path runs once per connection
+and once per reconnect; section 8.4 measured that burst and the cache made no
+latency difference. So on the transport this case study recommends, Redis is
+left with two jobs that both measured as negligible: a cache the read path
+barely needs, and a broker moving six messages a second.
+
+The honest architectural conclusion: **a production version on push could
+drop the Redis cache and keep `latest_prices` as the sole snapshot source**,
+leaving Redis only as Centrifugo's engine - or, given 8.7, not at all if NATS
+or Centrifugo's memory engine were chosen. This is the opposite of what the
+plan assumed going in, and it is the kind of thing that can only be
+discovered by building both paths and toggling between them. The toggle
+(`LATEST_PRICE_SOURCE`) stays in the code for exactly that reason.
+
+### 8.9 Phase 3 answers to the plan's questions (§22)
+
+| # | question | answer |
+|---|---|---|
+| 1 | At what client count does polling stop being the right answer, and what does push cost? | Polling's ceiling is ~30,000 clients on this machine (§2b) with update latency fixed at ~2.5s by arithmetic. Push holds 72-344ms p50 across 5k-25k at 2.4x less egress; it costs connection state, one snapshot per connect, and fanout CPU that grows linearly with subscribers (~0.12ms/delivery). |
+| 4 | How many realtime connections can one Centrifugo node sustain locally? | 25,000 connections with 241,737 subscriptions, zero errors, at 164% CPU. Not pushed to failure; the generator, not Centrifugo, is the next limit to find. |
+| 5 | Does one Redis doing cache and broker degrade snapshot latency, and does NATS remove it? | No degradation exists to remove at ~6 broker msg/s (§8.7). |
+| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | Linearly, ~0.3µs per subscriber per publication; 6.4ms at 20k, extrapolating to ~160ms at 500k, where channel sharding becomes worth building (§8.6). |
+| 7 | What happens to slow clients? | Centrifugo disconnects them (155 of ~200 at an 8 KiB queue); nobody else notices, p50 39ms (§8.5). |
+| 8 | Does `latest_prices` persistence affect realtime latency? | No - the durable write runs concurrently with cache and publish and is not on the delivery path. Not stress-tested with an artificially slow Postgres (plan Scenario G); deferred. |
+
 ## 7. What this does not yet answer
 
 Deliberately not measured yet, because it belongs to phase 3:

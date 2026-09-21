@@ -297,6 +297,28 @@ Status: **deferred to after phase 3**, then done before `make submit`.
 
 ---
 
+## Carried out of phase 3
+
+- **Decision for phase 4: the Redis cache on push.** Measured (§8.4, §8.8):
+  no snapshot-latency benefit at one request or at a 5,000-request burst; under
+  25k *polling* clients it buys p99 3.5x and 17 DB points for ~30 API points;
+  under push it is nearly idle, and the broker on the same Redis moves ~6
+  msg/s (§8.7). A production version on push could drop the cache and run
+  Postgres as the sole snapshot source. Whether the case study *ships* that
+  way, or ships both paths with the toggle and this finding, is a call for
+  the author, not the measurement.
+- **Scenario G (artificially slow Postgres) not run.** The durable write is
+  off the delivery path by construction (concurrent with cache and publish);
+  the plan asked for it to be shown under a stall. Deferred - low risk, and
+  the harness pattern to do it (a `pg_sleep` trigger on `latest_prices`) is
+  ten minutes if wanted.
+- **Centrifugo's own ceiling not found.** 25,000 connections at 164% CPU with
+  zero errors; the next limit to hit is more likely the single generator
+  container than the broker. Finding it needs a second generator host.
+- **Generator-side disconnect codes are untrusted** (§8.5); harnesses read
+  Centrifugo's counters. A small centrifuge-go fix would restore the
+  client-side figure; not worth doing until something needs it.
+
 ## What phase 3 inherits
 
 - A polling baseline measured without a write on the read path.
