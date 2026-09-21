@@ -1,47 +1,71 @@
 import { useCallback, useContext, useState } from 'react';
 import { UserContext } from './UserContext';
+import { api } from './api';
 
 export function LoginForm() {
-  // Get login function from user context.
-  const { user, login } = useContext(UserContext);
+  const { login } = useContext(UserContext);
 
-  // Form control.
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState('user1');
+  const [password, setPassword] = useState('password');
+  const [mode, setMode] = useState('login');
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
 
-  // Make call to backend server to login. Save user object to user context.
-  const handleLogin = useCallback((event) => {
-    event.preventDefault();
-    fetch('http://localhost:8000/login/', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username }),
-    })
-    .then((response) => response.json())
-    .then((data) => {
-      login(data);
-      console.info('Logged in successfully');
-    })
-    .catch((error) => {
-      console.error('Unable to login', error);
-    });
-  }, [username]);
-
-  if (user) return null;
+  const submit = useCallback(
+    async (event) => {
+      event.preventDefault();
+      setBusy(true);
+      setError(null);
+      try {
+        const data =
+          mode === 'login'
+            ? await api.login(username, password)
+            : await api.register(username, password);
+        login(data.access_token, data.user);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [mode, username, password, login],
+  );
 
   return (
-    <div className='login-form'>
-      <form onSubmit={ handleLogin }>
-        <h2>Log in</h2>
+    <div className="login-form">
+      <form onSubmit={submit}>
+        <h2>{mode === 'login' ? 'Log in' : 'Create an account'}</h2>
         <div className="inputs">
           <input
             type="text"
-            id="username"
-            placeholder="Enter your username"
-            value={ username }
-            onChange={ (event) => setUsername(event.target.value) }
+            placeholder="Username"
+            autoComplete="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
           />
-          <button type="submit">Login</button>
+          <input
+            type="password"
+            placeholder="Password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+          <button type="submit" disabled={busy}>
+            {busy ? '...' : mode === 'login' ? 'Log in' : 'Register'}
+          </button>
         </div>
+        {error && <p className="error">{error}</p>}
+        <p className="hint">
+          {mode === 'login' ? (
+            <>
+              No account? <button type="button" className="link" onClick={() => setMode('register')}>Register</button>
+            </>
+          ) : (
+            <>
+              Already registered? <button type="button" className="link" onClick={() => setMode('login')}>Log in</button>
+            </>
+          )}
+        </p>
       </form>
     </div>
   );

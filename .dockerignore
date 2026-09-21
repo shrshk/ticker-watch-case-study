@@ -1,0 +1,10 @@
+.git
+.idea
+archive
+client
+node_modules
+**/__pycache__
+.venv
+.pytest_cache
+.ruff_cache
+solution.zip

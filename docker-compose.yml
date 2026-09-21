@@ -1,49 +1,105 @@
-version: '3'
+# Core stack: postgres, redis, api, price-service, client.
+# Centrifugo arrives in phase 3 behind the `push` profile, so the polling
+# version stays honestly standalone rather than push-minus-a-flag.
+
+x-python-env: &python-env
+  ALBERT_API_KEY: ${ALBERT_API_KEY:?set ALBERT_API_KEY in .env}
+  ALBERT_API_BASE: ${ALBERT_API_BASE:-https://app.albert.com/casestudy}
+  POSTGRES_DSN: postgresql://postgres:postgres@db:5432/postgres
+  REDIS_URL: redis://redis:6379/0
+  JWT_SECRET: ${JWT_SECRET:-dev-only-not-a-secret}
+  PRICE_SOURCE: ${PRICE_SOURCE:-api}
+  PUBLISH_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-5}
+  UPSTREAM_POLL_INTERVAL_SECONDS: ${UPSTREAM_POLL_INTERVAL_SECONDS:-5}
+  PRICE_CACHE_TTL_SECONDS: ${PRICE_CACHE_TTL_SECONDS:-60}
+  LATEST_PRICE_SOURCE: ${LATEST_PRICE_SOURCE:-redis}
+  SIM_VOLATILITY: ${SIM_VOLATILITY:-0.002}
+  SIM_CHANGE_RATIO: ${SIM_CHANGE_RATIO:-0.30}
+  SIM_SEED: ${SIM_SEED:-1}
+  TRANSPORT: ${TRANSPORT:-poll}
+
 services:
-  # Django web server
-  web:
-    image: web:local
-    build:
-      context: ./django
-      dockerfile: Dockerfile
-    hostname: web
-    command: python manage.py runserver 0.0.0.0:8000
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
     volumes:
-      - ./django:/app
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Non-default host port so this stack can run beside another local
+      # Postgres. Traffic between containers still uses 5432.
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    hostname: redis
+    ports:
+      - "${REDIS_HOST_PORT:-56379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # Business APIs only. It does not own realtime fanout.
+  api:
+    image: watchlist-api:local
+    build: .
+    hostname: api
+    environment: *python-env
+    command: uvicorn watchlist.api.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./src:/app/src
     ports:
       - "8000:8000"
     depends_on:
-      - db
-      - redis
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
-  # Postgres
-  db:
-    image: postgres:15-alpine3.18
+  # The only writer of prices anywhere in the system, and the only caller of
+  # the vendor API - one call per tick, regardless of how many users exist.
+  price-service:
+    image: watchlist-api:local
+    build: .
+    hostname: price-service
+    environment: *python-env
+    command: python -m watchlist.price_service
+    restart: unless-stopped
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_DB=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-    ports:
-      - "5432:5432"
+      - ./src:/app/src
+      - ./seed:/app/seed
+    depends_on:
+      db: { condition: service_healthy }
+      redis: { condition: service_healthy }
 
-  # Redis
-  redis:
-      image: redis:7-alpine3.18
-      hostname: redis
-
-  # React app
-  app:
-    image: app:local
+  client:
+    image: watchlist-client:local
     build:
       context: ./client
       dockerfile: Dockerfile
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+      VITE_TRANSPORT: ${TRANSPORT:-poll}
+      VITE_POLL_INTERVAL_SECONDS: ${PUBLISH_INTERVAL_SECONDS:-5}
     volumes:
-      - ./client:/app/
+      - ./client:/app
       - /app/node_modules
     ports:
       - "3000:3000"
+    depends_on:
+      - api
 
 volumes:
-    postgres_data:
+  postgres_data:

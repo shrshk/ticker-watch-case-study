@@ -1,79 +1,241 @@
+/* Deliberately unpolished. The brief says the UI does not need to be polished,
+   and time spent here is time not spent on the measurements. */
+
+:root {
+  --bg: #12141a;
+  --panel: #1a1d26;
+  --border: #2b3040;
+  --text: #e6e8ee;
+  --muted: #8b91a3;
+  --accent: #4da3ff;
+  --up: #3ddc97;
+  --warn: #ffb020;
+  --danger: #ff6b6b;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .app {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 24px 16px 64px;
 }
 
 header {
-  width: 100%;
-  height: 80px;
-  background: #0066FF;
-  color: #FFF;
-  top: 0;
   display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  align-items: center;
-  padding: 0 30px;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 12px;
+  margin-bottom: 20px;
 }
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+h2 {
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+button {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+button.link {
+  border: none;
+  background: none;
+  color: var(--accent);
+  padding: 0;
+  text-decoration: underline;
+}
+
+input {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 7px 10px;
+  font: inherit;
+}
+
+input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Login ------------------------------------------------------------------ */
 
 .login-form {
-  position: fixed;
-  top: 30vh;
-  left: 50vw;
-  transform: translateX(-50%);
-  background: #FFF;
-  border: 1px solid #444;
-  border-radius: 6px;
-  padding: 20px;
-  width: 300px;
+  max-width: 360px;
 }
 
-.login-form .inputs * {
-  display: block;
-  margin: 10px 0;
-  width: 100%;
+.login-form .inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
-.login-form input {
-  padding: 8px;
-  border-width: 1px;
-  border-radius: 4px;
-  transition-duration: 200ms;
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
 }
-.login-form button {
-  background: #0066FF;
-  color: #FFF;
-  border: none;
-  border-radius: 4px;
-  padding: 8px 0;
-  cursor: pointer;
-  transition-duration: 200ms;
-}
-.login-form button:hover {
-  background: #0044CC;
+
+.error {
+  color: var(--danger);
+  font-size: 13px;
 }
 
 .user {
   display: flex;
-  gap: 20px;
   align-items: center;
-}
-.user button {
-  background: #FFF;
-  border: none;
-  border-radius: 4px;
-  padding: 8px 16px;
-  cursor: pointer;
-  transition-duration: 200ms;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
 }
 
-.app section {
-  height: 100%;
-  margin: 60px;
+/* Status bar ------------------------------------------------------------- */
+
+.status-bar {
   display: flex;
-  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.pill.status-live {
+  color: var(--up);
+  border-color: var(--up);
+}
+
+.pill.status-connecting {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.pill.status-offline {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.pill.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+/* Search ----------------------------------------------------------------- */
+
+.search input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.results {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.results li {
+  display: grid;
+  grid-template-columns: 80px 1fr auto;
+  gap: 12px;
   align-items: center;
-  border: 4px dashed #444;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.results li:last-child {
+  border-bottom: none;
+}
+
+/* Watchlist -------------------------------------------------------------- */
+
+.watchlist {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 20px;
+}
+
+.watchlist th {
+  text-align: left;
+  font-weight: normal;
+  color: var(--muted);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+}
+
+.watchlist td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.watchlist .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ticker {
+  color: var(--accent);
+}
+
+.name,
+.updated {
+  color: var(--muted);
+}
+
+/* Flash the rows whose price actually moved. The simplest way to show the
+   update path works, and it makes reconnect behaviour observable. */
+.watchlist tr.moved .price {
+  animation: flash 1.2s ease-out;
+}
+
+@keyframes flash {
+  0% {
+    background: rgba(61, 220, 151, 0.35);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.empty {
+  color: var(--muted);
+  margin-top: 24px;
+}
