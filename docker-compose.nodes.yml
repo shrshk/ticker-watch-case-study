@@ -1,0 +1,47 @@
+# Horizontal Centrifugo: `make up TRANSPORT=push NODES=3` (or add this file
+# with -f). Two more nodes, identical config, discovering each other through
+# the Redis engine. Only node 1 keeps a host port; the price service still
+# publishes to node 1 and the engine delivers to the rest - that is the
+# engine's actual job, and the first place it does real work.
+#
+# On one machine this adds no CPU. It tests the distribution mechanism, not
+# capacity: whether fanout spreads across nodes and per-node broadcast cost
+# falls to the smaller channel size.
+services:
+  centrifugo-2:
+    image: centrifugo/centrifugo:v6
+    profiles: ["push"]
+    command: centrifugo -c /centrifugo/config.json
+    volumes:
+      - ./centrifugo/config.redis.json:/centrifugo/config.json:ro
+    environment:
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${JWT_SECRET:-dev-only-not-a-secret-but-at-least-32-bytes}
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-only-centrifugo-api-key}
+    ulimits:
+      nofile: { soft: 200000, hard: 200000 }
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  centrifugo-3:
+    image: centrifugo/centrifugo:v6
+    profiles: ["push"]
+    command: centrifugo -c /centrifugo/config.json
+    volumes:
+      - ./centrifugo/config.redis.json:/centrifugo/config.json:ro
+    environment:
+      CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY: ${JWT_SECRET:-dev-only-not-a-secret-but-at-least-32-bytes}
+      CENTRIFUGO_HTTP_API_KEY: ${CENTRIFUGO_HTTP_API_KEY:-dev-only-centrifugo-api-key}
+    ulimits:
+      nofile: { soft: 200000, hard: 200000 }
+    depends_on:
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

@@ -15,13 +15,31 @@ require_simulated
 CLIENTS="${1:?clients}"; N="${2:?generator containers}"
 TICKER="${TICKER:-NVDA}"
 RAMP="${RAMP:-30s}"
+NODES="${NODES:-1}"   # Centrifugo nodes; >1 adds docker-compose.nodes.yml and pins generators round-robin
 RANGE="$(user_range)"
 PER=$(( CLIENTS / N ))
+if [ "${NODES}" -gt 1 ]; then
+  COMPOSE_PUSH="docker compose -f docker-compose.yml -f docker-compose.nodes.yml --profile push --profile load"
+fi
 ${COMPOSE_PUSH} build load-generator >/dev/null
 set_env TRANSPORT push; recreate price-service; wait_healthy price-service
-recreate centrifugo; wait_healthy centrifugo
+node_services=(centrifugo); for k in $(seq 2 "${NODES}"); do node_services+=("centrifugo-${k}"); done
+recreate "${node_services[@]}"; for svc in "${node_services[@]}"; do wait_healthy "${svc}"; done
+if [ "${NODES}" -gt 1 ]; then
+  sleep 12  # node discovery via the engine is periodic
+  for svc in "${node_services[@]}"; do
+    seen="$(${COMPOSE_PUSH} exec -T "${svc}" wget -qO- http://localhost:8000/metrics 2>/dev/null | awk '/^centrifugo_node_num_nodes /{print $2}')"
+    [ "${seen}" = "${NODES}" ] || { echo "REFUSING: ${svc} sees ${seen} nodes, wanted ${NODES}" >&2; exit 1; }
+  done
+fi
 
-echo "clients=${CLIENTS} across ${N} generators (${PER} each), ramp=${RAMP}, duration=${DURATION}, celebrity=${TICKER}"
+node_url() {  # generator index -> ws url of its pinned node, round-robin
+  local k=$(( ($1 - 1) % NODES + 1 ))
+  if [ "${k}" -eq 1 ]; then echo "ws://centrifugo:8000/connection/websocket"; else echo "ws://centrifugo-${k}:8000/connection/websocket"; fi
+}
+node_metrics() { ${COMPOSE_PUSH} exec -T "$1" wget -qO- http://localhost:8000/metrics 2>/dev/null; }
+
+echo "clients=${CLIENTS} across ${N} generators (${PER} each) on ${NODES} centrifugo node(s), ramp=${RAMP}, duration=${DURATION}, celebrity=${TICKER}"
 stats="$(mktemp)"; sentinel="$(mktemp)"; outdir="$(mktemp -d)"
 ( while [ -e "${sentinel}" ]; do
     docker stats --no-stream --format '{{.Name}} {{.CPUPerc}} {{.MemUsage}}' 2>/dev/null >> "${stats}" || true
@@ -33,7 +51,7 @@ for i in $(seq 1 "${N}"); do
   # --no-deps: N concurrent `compose run`s otherwise all try to ensure the
   # api's depends_on and race on recreating it - the second one died with a
   # container-name conflict, and a "50k" run silently became a 25k run.
-  ( ${COMPOSE_PUSH} run --rm --no-deps load-generator -transport push -clients "${PER}" -duration "${DURATION}" \
+  ( ${COMPOSE_PUSH} run --rm --no-deps -e CENTRIFUGO_URL="$(node_url "${i}")" load-generator -transport push -clients "${PER}" -duration "${DURATION}" \
       -ramp-up "${RAMP}" -celebrity "${TICKER}" -logical-users "${LOGICAL_USERS}" ${RANGE} \
       > "${outdir}/gen${i}.out" 2> "${outdir}/gen${i}.err" || true ) &
   pids+=($!)
@@ -51,9 +69,27 @@ for i in $(seq 1 "${N}"); do
     "$(sed -n 's/^celebrity [A-Z.]* *[0-9]* messages; update latency \(p50 [0-9]*ms p95 [0-9]*ms p99 [0-9]*ms\).*/\1/p' "$o")"
 done
 
-echo; echo "--- centrifugo (authoritative) ---"
-echo "connections now: $(cf_metric_sum centrifugo_node_num_clients)   subscriptions: $(cf_metric_sum centrifugo_node_num_subscriptions)"
-echo "broadcast duration: $(cf_histogram centrifugo_node_broadcast_duration_seconds)"
+echo; echo "--- centrifugo (authoritative), per node ---"
+for svc in "${node_services[@]}"; do
+  mtx="$(node_metrics "${svc}")"
+  clients="$(awk '/^centrifugo_node_num_clients /{print $2}' <<<"${mtx}")"
+  subs="$(awk '/^centrifugo_node_num_subscriptions /{print $2}' <<<"${mtx}")"
+  hist="$(python3 -c '
+import sys,re
+m="centrifugo_node_broadcast_duration_seconds"; b=[]; c=s=0
+for l in sys.stdin:
+    if l.startswith(m+"_bucket"):
+        le=float(re.search(r"le=\"([^\"]+)\"",l).group(1).replace("+Inf","inf")); b.append((le,float(l.split()[-1])))
+    elif l.startswith(m+"_count"): c=float(l.split()[-1])
+    elif l.startswith(m+"_sum"): s=float(l.split()[-1])
+def q(p):
+    for le,n in sorted(b):
+        if n>=p*c: return le
+    return float("inf")
+print(f"count={c:.0f} mean={1000*s/c if c else 0:.2f}ms p95<={1000*q(.95):.0f}ms p99<={1000*q(.99):.0f}ms")
+' <<<"${mtx}")"
+  printf '  %-13s clients(now)=%-7s subs(now)=%-8s broadcast: %s\n' "${svc}" "${clients}" "${subs}" "${hist}"
+done
 python3 - "${stats}" "${CLIENTS}" <<'PY'
 import sys, collections
 stats, clients = sys.argv[1], int(sys.argv[2])
@@ -62,12 +98,16 @@ for line in open(stats):
     parts = line.split()
     if len(parts) < 3: continue
     name, cpu = parts[0], float(parts[1].rstrip('%'))
-    key = ('generator' if 'load-generator' in name else next((k for k in ('api','db','redis','centrifugo','price-service') if f'-{k}-' in name), None))
+    if 'load-generator' in name: key = 'generator'
+    elif '-centrifugo-2-' in name: key = 'centrifugo-2'
+    elif '-centrifugo-3-' in name: key = 'centrifugo-3'
+    elif '-centrifugo-' in name: key = 'centrifugo'
+    else: key = next((k for k in ('api','db','redis','price-service') if f'-{k}-' in name), None)
     if not key: continue
     series[key].append(cpu); peak[key] = max(peak.get(key, 0), cpu); mem[key] = parts[2]
 def steady(v): h = v[len(v)//2:]; return sum(h)/max(1,len(h))
 tot_peak = 0.0; print("cpu (peak / steady-state mean of 2nd half):")
-for k in ('centrifugo','api','db','redis','price-service','generator'):
+for k in ('centrifugo','centrifugo-2','centrifugo-3','api','db','redis','price-service','generator'):
     if k in series:
         # generator containers are several; sum them per sample is not available, so report per-sample peak and note count
         print(f"  {k:<14} {peak[k]:>6.0f}% / {steady(series[k]):>6.0f}%   mem {mem[k]}")
