@@ -25,17 +25,26 @@ Log in as `user1` / `password` (or `user2` / `password`).
 prefer the original scaffold's rhythm, those targets still exist individually,
 and `make up` runs the stack in the foreground. `make help` lists everything.
 
-**Markets are closed most of the time.** Outside trading hours the vendor
-returns the last close, so nothing moves on screen. To see the update path
-working at any hour:
+**The default is the real vendor.** `PRICE_SOURCE=api` is what ships and what
+the brief asks for; every price on screen comes from the Albert API, one call
+per 5-second tick for the whole catalog.
+
+**Simulated prices are optional test tooling.** Outside trading hours the
+vendor returns the last close, so nothing moves on screen — correct, but hard
+to review. To see the update path move at any hour, or to run any benchmark:
 
 ```bash
-make reset-prices
-make up PRICE_SOURCE=simulated
+# in .env:  PRICE_SOURCE=simulated
+make restart
 ```
 
-The UI shows a `simulated prices` badge whenever the numbers are generated, so
-nobody watching a demo mistakes them for live market data.
+The service reconciles the stored prices itself on the switch (see *Switching
+price sources*). The UI shows a `simulated prices` badge whenever the numbers
+are generated, so nobody watching a demo mistakes them for live market data.
+
+**Submitting.** `make submit` refuses to package a `.env` left in test or
+benchmark mode (`PRICE_SOURCE=simulated`, `UVICORN_ARGS=--workers N`) — `.env`
+ships in the zip, so what it says is what a reviewer runs.
 
 ---
 

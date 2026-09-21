@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 .PHONY: help build up down restart logs ps sh migrate createusers createsuperuser \
-        capture-prices reset-prices psql redis-cli open-app open-api test lint format \
+        capture-prices reset-prices psql redis-cli open-app open-api test lint format submit-check \
         seed-small seed-medium seed-million seed-clear db-bench load load-container \
         clean submit bootstrap
 
@@ -122,7 +122,10 @@ format: ## Format
 clean: ## Stop the stack and delete its volumes
 	$(COMPOSE) down -v
 
-submit: ## Package the project into solution.zip
+submit-check: ## Refuse to package a .env left in test/benchmark mode
+	python3 tools/submit_check.py
+
+submit: submit-check ## Package the project into solution.zip (runs submit-check first)
 	rm -f solution.zip
 	zip -r solution.zip . \
 	    -x '*.git/*' '*node_modules/*' '*__pycache__/*' '*.venv/*' \
