@@ -13,6 +13,7 @@ dependencies = [
     "bcrypt>=4.2",
     "pydantic>=2.10",
     "pydantic-settings>=2.7",
+    "prometheus-client>=0.21",
 ]
 
 [dependency-groups]

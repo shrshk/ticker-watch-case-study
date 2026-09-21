@@ -14,7 +14,7 @@ import asyncpg
 import redis.exceptions
 
 from watchlist.modules.prices import prices_controller
-from watchlist.shared import cache
+from watchlist.shared import cache, metrics
 from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
 from watchlist.shared.timeutil import to_iso
@@ -71,6 +71,12 @@ class SnapshotReader:
         missing = [sid for sid, _ in securities if sid not in self._found]
         if missing:
             await self._from_database(missing)
+
+        metrics.snapshot_reads_total.labels(self._read_path).inc()
+        if self._cache_hits:
+            metrics.snapshot_cache_lookups_total.labels("hit").inc(self._cache_hits)
+        if missing:
+            metrics.snapshot_cache_lookups_total.labels("miss").inc(len(missing))
 
         return PriceSnapshot(
             prices=self._found,

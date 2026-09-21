@@ -59,6 +59,10 @@ class Settings(BaseSettings):
     centrifugo_api_key: str = "dev-only-centrifugo-api-key"
     centrifugo_token_ttl_seconds: int = 15 * 60
 
+    # The price service has no HTTP server of its own; Prometheus metrics are
+    # served here on a thread. The API serves its own at /metrics.
+    metrics_port: int = 8002
+
 
 @lru_cache
 def get_settings() -> Settings:

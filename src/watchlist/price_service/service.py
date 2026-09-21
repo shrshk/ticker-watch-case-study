@@ -40,7 +40,7 @@ from watchlist.modules.securities import securities_controller
 from watchlist.price_service.sources.albert import AlbertSource
 from watchlist.price_service.sources.base import PriceSource
 from watchlist.price_service.sources.simulated import SimulatedSource
-from watchlist.shared import cache, db
+from watchlist.shared import cache, db, metrics
 from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
 from watchlist.shared.timeutil import to_iso
@@ -175,6 +175,8 @@ class PriceService:
             flushed = await cache.flush_prices()
             logger.warning("flushed %d cached prices along with the simulated rows", flushed)
         self.stats["source_reconciliation"] = outcome.action
+        metrics.source_reconciliation.labels(outcome.action).set(1)
+        metrics.price_source.labels(self._settings.price_source).set(1)
 
     async def _build_source(self) -> PriceSource:
         if self._settings.price_source == "api":
@@ -238,6 +240,8 @@ class PriceService:
                 # because the next tick supersedes it 5 seconds later.
                 logger.exception("tick failed")
             elapsed = time.monotonic() - started
+            metrics.ticks_total.inc()
+            metrics.tick_duration_seconds.observe(elapsed)
             HEARTBEAT.touch()
             if elapsed > interval:
                 # The one number to watch first: past this point the system is
@@ -253,6 +257,7 @@ class PriceService:
         if not prices:
             return
         self.stats["updates_received"] += len(prices)
+        metrics.prices_received_total.inc(len(prices))
 
         now = dt.datetime.now(dt.UTC)
         changed = {t: p for t, p in prices.items() if self._last_published.get(t) != p}
@@ -262,6 +267,7 @@ class PriceService:
         for ticker in prices:
             self._effective_at.setdefault(ticker, now)
         self.stats["updates_changed"] += len(changed)
+        metrics.prices_changed_total.inc(len(changed))
 
         # Three writes, three scopes, none blocking the others. A Postgres
         # stall must not delay the publish; a Centrifugo stall must not delay
@@ -302,8 +308,10 @@ class PriceService:
             self._upstream_prices = await self._source.fetch(tickers)
             self._last_upstream_fetch = now
             self.stats["upstream_calls"] += 1
+            metrics.upstream_calls_total.labels("ok").inc()
         except (httpx.HTTPError, OSError, ValueError):
             self.stats["upstream_errors"] += 1
+            metrics.upstream_calls_total.labels("error").inc()
             logger.exception("upstream fetch failed; serving the previous read")
         return self._upstream_prices
 
@@ -325,8 +333,11 @@ class PriceService:
             )
             self.stats["cache_writes"] += written
             self.stats["cache_writes_rejected"] += rejected
+            metrics.cache_writes_total.labels("written").inc(written)
+            metrics.cache_writes_total.labels("rejected").inc(rejected)
         except (redis.exceptions.RedisError, OSError):
             self.stats["cache_errors"] += 1
+            metrics.cache_writes_total.labels("error").inc(len(entries))
             logger.exception("cache write failed for %d tickers", len(entries))
 
     async def _write_postgres(self, changed: dict[str, float]) -> None:
@@ -341,7 +352,9 @@ class PriceService:
             async with db.pool().acquire() as conn:
                 await prices_controller.upsert_many(conn, rows)
             self.stats["postgres_upserts"] += len(rows)
+            metrics.postgres_upserts_total.labels("ok").inc(len(rows))
         except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError):
+            metrics.postgres_upserts_total.labels("error").inc(len(rows))
             # A Postgres stall must not stop the cache write or, later, the
             # publish. Clients keep seeing fresh prices; durability lags.
             # asyncpg errors are not OSErrors; catching only OSError let the
@@ -377,18 +390,23 @@ class PriceService:
                 }
             )
         try:
+            t0 = time.perf_counter()
             response = await self._publisher.post("/batch", json={"commands": commands})
             response.raise_for_status()
+            metrics.publish_batch_duration_seconds.observe(time.perf_counter() - t0)
             failed = sum(1 for r in response.json().get("replies", []) if "error" in r)
             self.stats["published"] += len(commands) - failed
             self.stats["publish_errors"] += failed
             self.stats["publish_batches"] += 1
+            metrics.publishes_total.labels("ok").inc(len(commands) - failed)
+            metrics.publishes_total.labels("error").inc(failed)
             if failed:
                 logger.warning("centrifugo rejected %d of %d publishes", failed, len(commands))
         except (httpx.HTTPError, ValueError):
             # Realtime is at-most-once by design: a dropped tick is superseded
             # by the next one in 5 seconds. Count it; do not retry it.
             self.stats["publish_errors"] += len(commands)
+            metrics.publishes_total.labels("error").inc(len(commands))
             logger.exception("publish batch of %d failed", len(commands))
 
     async def stop(self) -> None:

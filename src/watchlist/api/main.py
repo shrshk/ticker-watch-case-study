@@ -4,16 +4,17 @@ It does not own realtime fanout. In phase 3 it gains POST /realtime/token and
 Centrifugo takes the client connections.
 """
 
+import time
 from contextlib import asynccontextmanager
 
 import asyncpg
 import redis.exceptions
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from watchlist.api.routers import auth, realtime, securities, watchlist
 from watchlist.modules.prices import prices_controller
-from watchlist.shared import cache, db
+from watchlist.shared import cache, db, metrics
 from watchlist.shared.logging import configure_logging
 from watchlist.shared.settings import get_settings
 
@@ -39,6 +40,31 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def record_request_metrics(request: Request, call_next):
+    started = time.perf_counter()
+    response = await call_next(request)
+    # The route *template*, not the path: /watchlist/items/{security_id}, so
+    # the label set stays small however many securities exist.
+    route = request.scope.get("route")
+    template = getattr(route, "path", request.url.path)
+    if template != "/metrics":
+        metrics.http_requests_total.labels(
+            template, request.method, f"{response.status_code // 100}xx"
+        ).inc()
+        metrics.http_request_duration_seconds.labels(template).observe(
+            time.perf_counter() - started
+        )
+    return response
+
+
+@app.get("/metrics", tags=["ops"], include_in_schema=False)
+async def prometheus_metrics() -> Response:
+    body, content_type = metrics.render()
+    return Response(content=body, media_type=content_type)
+
 
 app.include_router(auth.router)
 app.include_router(securities.router)

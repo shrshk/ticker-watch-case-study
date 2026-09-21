@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help build up down restart logs ps sh migrate createusers createsuperuser \
         capture-prices reset-prices psql redis-cli open-app open-api test lint format submit-check \
+        db-dump db-restore \
         seed-small seed-medium seed-million seed-clear db-bench load load-container \
         clean submit bootstrap
 
@@ -62,6 +63,13 @@ migrate: ## Apply migrations/*.sql (idempotent)
 
 createusers: ## Create demo users user1 and user2, password 'password'
 	$(COMPOSE) run --rm -T api python tools/create_users.py
+
+db-dump: ## Write db/demo.sql (schema + demo state; refuses if load-test users exist)
+	python3 tools/db_dump.py
+
+db-restore: ## Load db/demo.sql into the running database (destructive: --clean)
+	$(COMPOSE) exec -T db psql -U postgres -q postgres < db/demo.sql
+	@echo "restored db/demo.sql"
 
 createsuperuser: createusers ## Alias kept for parity with the original scaffold
 	@echo "No Django admin in this stack; use the API or 'make psql'."

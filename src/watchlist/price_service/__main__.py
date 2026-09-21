@@ -3,6 +3,8 @@
 import asyncio
 import contextlib
 
+from prometheus_client import start_http_server
+
 from watchlist.price_service.service import PriceService
 from watchlist.shared.logging import configure_logging
 from watchlist.shared.settings import get_settings
@@ -12,6 +14,11 @@ logger = configure_logging("price-service")
 
 async def main() -> None:
     settings = get_settings()
+    # /metrics on a thread of its own, so the tick loop never waits on a
+    # scrape. Port 8002 inside the container; Compose maps it.
+    start_http_server(settings.metrics_port)
+    logger.info("metrics on :%d/metrics", settings.metrics_port)
+
     service = PriceService()
     await service.start()
 
