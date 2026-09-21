@@ -319,6 +319,24 @@ the latency result is what should decide the architecture, and the CPU saving
 is what makes push cheaper as well as better rather than what makes it
 necessary.
 
+### Push, measured (phase 3)
+
+Same load under both transports, one batch, simulated prices at a 30% change
+ratio. Full table and caveats in [`docs/measurements.md`](docs/measurements.md) §8.
+
+| clients | poll upd p50 / p99 | **push upd p50 / p99** | poll B/client/min | **push** |
+|---|---|---|---|---|
+| 5,000 | 2,595 / 4,954ms | **72 / 134ms** | 16,549 | **6,829** |
+| 10,000 | 2,546 / 4,959ms | **134 / 297ms** | 16,562 | **6,398** |
+| 20,000 | 2,550 / 4,959ms | **265 / 651ms** | 16,558 | **6,794** |
+| 25,000 | 2,558 / 4,964ms | **344 / 978ms** | 16,538 | **5,956** |
+
+Polling's latency is flat because it is the interval. Push's grows with
+subscribers because it is fanout - 13,437 deliveries a second at 25,000
+clients, at about **0.12ms of Centrifugo CPU each**, against the 0.44ms the
+phase 2 arithmetic said it had to beat. HTTP request rate under push is one
+snapshot per connection and then nothing.
+
 **What push will cost, stated honestly:** connection state, reconnect handling,
 the snapshot/subscribe ordering problem, slow-consumer management, and one more
 component to run. Phase 3 runs identical load under both and publishes the

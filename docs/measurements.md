@@ -580,7 +580,65 @@ that is less than the arithmetic in section 3 suggests.
 
 ### 8.3 Scenario B, controlled
 
-<!-- SCENARIO-B-SIM -->
+`PRICE_SOURCE=simulated`, `SIM_CHANGE_RATIO=0.30`, `SIM_SEED=1`, 4 uvicorn
+workers, 45s runs, one batch. Polling ran with the price service **not**
+publishing; push with it publishing. CPU figures are the **peak** sample -
+see the caveat below.
+
+| clients | transport | HTTP req/s | upd p50 | upd p95 | upd p99 | errors | API | DB | Redis | Centrifugo | B/client/min |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 5,000 | poll | 943 | 2,595ms | 4,772ms | 4,954ms | 0 | 108% | 38% | 4% | - | 16,549 |
+| 5,000 | **push** | 111 | **72ms** | **127ms** | **134ms** | 0 | 118% | 37% | 3% | 42% | **6,829** |
+| 10,000 | poll | 1,886 | 2,546ms | 4,773ms | 4,959ms | 0 | 175% | 50% | 6% | - | 16,562 |
+| 10,000 | **push** | 222 | **134ms** | **257ms** | **297ms** | 0 | 167% | 55% | 6% | 80% | **6,398** |
+| 20,000 | poll | 3,772 | 2,550ms | 4,768ms | 4,959ms | 0 | 261% | 104% | 11% | - | 16,558 |
+| 20,000 | **push** | 439 | **265ms** | **577ms** | **651ms** | 0 | 197% | 79% | 7% | 141% | **6,794** |
+| 25,000 | poll | 4,706 | 2,558ms | 4,762ms | 4,964ms | 0 | 348% | 127% | 13% | - | 16,538 |
+| 25,000 | **push** | 541 | **344ms** | **769ms** | **978ms** | 984* | 320% | 136% | 13% | 164% | **5,956** |
+
+\* 984 errors in the ladder run; an immediate standalone re-run at the same
+load produced **zero** errors, 25,000 connections, 241,737 subscriptions and
+608,610 publications received (13,437/s), with update latency p50 390 / p95
+851 / p99 921ms. The errors did not reproduce and are most likely the connect
+ramp overlapping the transport switch that precedes each push row. Both
+numbers are reported.
+
+**What the table says**
+
+1. **Update latency is the whole argument, and it holds at every size.**
+   Polling sits at 2,550ms p50 / 4,960ms p99 regardless of load - the
+   interval/2 arithmetic from section 2. Push is 72ms at 5,000 clients and
+   344ms at 25,000: **36x better at the low end, 7x at the high end**, and
+   under a second at p99 throughout.
+
+2. **Push latency grows with subscribers; polling's does not.** 72 → 134 →
+   265 → 344ms p50 across 5k → 25k is roughly linear in client count. That is
+   fanout cost - 13,437 deliveries per second at 25k - and it is the one place
+   push pays per user. Polling pays per user too, but in request rate, which
+   shows up as the ceiling in section 2b rather than as latency.
+
+3. **Egress is 2.4x lower** at this change ratio: 6.4-6.8k bytes per client per
+   minute against 16.5k. On live data at ~40% change the gap was only 1.1x
+   (section 8.2). Push saves bandwidth in proportion to what does *not* move.
+
+4. **The CPU columns are not the win they look like they should be, and the
+   reason is the sampler.** It records the *peak* over the run. Under push the
+   peak is the connect ramp - 5,000 to 25,000 snapshots in ten seconds - after
+   which the API is nearly idle; under polling the load is flat. Peak-vs-peak
+   therefore understates push's steady-state advantage badly. The harness now
+   also reports a post-ramp mean; the next batch carries both.
+
+5. **The per-delivery prediction held.** Section 6 said push wins on CPU only
+   if a fanout delivery costs under 0.44ms. Centrifugo at 164% CPU for 13,437
+   deliveries/s is **~0.12ms per delivery**, and that is the whole broker path
+   - the API is not in it.
+
+6. **Redis did not notice the broker.** Redis CPU is identical under both
+   transports at every size (3-13%). With ~30 changed tickers per 5s tick the
+   broker moves about 6 messages per second through Redis pub/sub; the
+   contention section 11 of the plan worried about does not exist at this
+   publish rate. Section 8.6 puts a number on it under NATS anyway.
+
 
 ---
 

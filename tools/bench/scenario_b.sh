@@ -72,25 +72,33 @@ rate = g(r"^request rate\s+([\d.]+)/s")
 upd = re.search(r"^update latency\s+p50 (\d+)ms\s+p95 (\d+)ms\s+p99 (\d+)ms", t, re.M)
 p50, p95, p99 = upd.groups() if upd else ("-", "-", "-")
 errs = int(g(r"^(?:transport errors|realtime errors)\s+(\d+)", "0")) + int(g(r"^non-200 (?:responses|snapshots)\s+(\d+)", "0"))
-peak = {}
+# Peak hides a distinction that matters: under push the API's peak is the
+# connect ramp (every client takes one snapshot), not steady state. Report
+# both - peak, and the mean over the second half of the run.
+peak, series = {}, {}
 for line in open(stats):
     parts = line.split()
     if len(parts) == 2:
         for key in ("api", "db", "redis", "centrifugo"):
             if f"-{key}-" in parts[0]:
-                peak[key] = max(peak.get(key, 0.0), float(parts[1].rstrip("%")))
+                v = float(parts[1].rstrip("%"))
+                peak[key] = max(peak.get(key, 0.0), v)
+                series.setdefault(key, []).append(v)
+steady = {k: (sum(v[len(v)//2:]) / max(1, len(v[len(v)//2:]))) for k, v in series.items()}
 if transport == "poll":
     kb_total = float(g(r"^bytes on the wire\s+([\d.]+) KB", "0"))
 else:
     kb_total = int(cf_bytes) / 1024 + float(g(r"^bytes on the wire\s+([\d.]+) KB", "0"))
 per_client_min = kb_total * 1024 / int(clients) / (int(dur) / 60)
 print(f"{transport:<6} {clients:>7} {rate:>8}/s {p50:>7}ms {p95:>7}ms {p99:>7}ms {errs:>6} "
-      f"{peak.get('api',0):>6.0f}% {peak.get('db',0):>5.0f}% {peak.get('redis',0):>6.0f}% {peak.get('centrifugo',0):>5.0f}% "
+      f"{peak.get('api',0):>4.0f}/{steady.get('api',0):<4.0f} {peak.get('db',0):>4.0f}/{steady.get('db',0):<4.0f} "
+      f"{peak.get('redis',0):>3.0f}/{steady.get('redis',0):<3.0f} {peak.get('centrifugo',0):>4.0f}/{steady.get('centrifugo',0):<4.0f} "
       f"{per_client_min:>9.0f}")
 PY
 }
 
-printf '%-6s %7s %10s %9s %9s %9s %6s %7s %6s %7s %6s %9s\n' transport clients http_req upd_p50 upd_p95 upd_p99 errors api db redis cfugo B/client/min
+echo 'cpu columns are peak/steady-state-mean (second half of the run)'
+printf '%-6s %7s %10s %9s %9s %9s %6s %9s %9s %7s %9s %9s\n' transport clients http_req upd_p50 upd_p95 upd_p99 errors api db redis cfugo B/client/min
 printf '%.0s-' {1..108}; echo
 for clients in "$@"; do
   set_transport poll;  run_one poll "${clients}"
