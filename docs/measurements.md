@@ -795,13 +795,18 @@ latency difference. So on the transport this case study recommends, Redis is
 left with two jobs that both measured as negligible: a cache the read path
 barely needs, and a broker moving six messages a second.
 
-The honest architectural conclusion: **a production version on push could
-drop the Redis cache and keep `latest_prices` as the sole snapshot source**,
-leaving Redis only as Centrifugo's engine - or, given 8.7, not at all if NATS
-or Centrifugo's memory engine were chosen. This is the opposite of what the
-plan assumed going in, and it is the kind of thing that can only be
-discovered by building both paths and toggling between them. The toggle
-(`LATEST_PRICE_SOURCE`) stays in the code for exactly that reason.
+The honest conclusion is narrower than "drop the cache". **On this machine
+the cache is not load-bearing on push.** But this machine is one Docker VM:
+Postgres, Redis, the API and the load all share ten cores and a loopback
+network, and a `latest_prices` lookup that beats a Redis round trip here does
+so because both are in-memory calls to a neighbour. On cloud infrastructure
+the same two paths are a managed Postgres across a subnet and a managed Redis
+across another, under a connection budget the API shares with everything
+else - and there the cache could be load-bearing for exactly the reasons the
+plan gave. **The local experiment does not warrant removing it; it warrants
+saying it was not needed here and measuring again where it might be.** The
+toggle (`LATEST_PRICE_SOURCE`) stays in the code for exactly that reason, and
+the cache stays with it.
 
 ### 8.9 Phase 3 answers to the plan's questions (§22)
 
@@ -969,16 +974,20 @@ Two readings, neither confirmed:
   a per-publication test (one channel at a time instead of a 30-command batch)
   would settle it.
 
-**What this changes in the conclusion.** The theoretical ordering stays -
-engine-distributed fanout by node is how Centrifugo scales, and the mechanism
-was verified working - but its *payoff is unmeasured*, and one attempt to
-measure it on one machine showed none. "More nodes" moves from "the first
-lever" to "the first lever to test on separate hosts". Sharding stays out of
-scope. The honest summary for the discussion: one node handles a hot channel
-cleanly to ~25k subscribers; between 25k and 50k the cost per broadcast rises
-~6x and reproduces; three nodes on the same machine did not lower it; and
-finding out whether nodes on separate machines do is the next experiment, not
-this one.
+**What this changes in the conclusion.** The mechanism is verified: the
+engine distributes fanout by node, the split was even, each node did a third
+of the work. What is *not* shown is that this lowers latency - and the
+experiment could not show it either way, because three nodes on one Docker VM
+share the ten cores and the one virtual network stack that every socket write
+goes through. **A local Docker experiment neither warrants "more nodes help"
+nor decisively refutes it. On cloud infrastructure - three hosts, three
+network interfaces, a real engine hop between them - the same lever could be
+load-bearing, and that is where it has to be measured.** The honest summary
+for the discussion: one node handles a hot channel cleanly to ~25k
+subscribers; between 25k and 50k the cost per broadcast rises ~6x and
+reproduces; three nodes on the same machine did not lower it; whether three
+machines would is the next experiment, and it is not one a laptop can run.
+Sharding stays out of scope.
 
 **Harness notes.** The single-node steady-state run first died with no output
 because `seq 2 1` counts *down* - `NODES=1` built the node list as

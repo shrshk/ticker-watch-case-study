@@ -254,8 +254,11 @@ NVDA and Centrifugo's own broadcast histogram as the source:
 
 Clean to ~25k; superlinear by 50k, reproduced in a second full run within 1%.
 **Three Centrifugo nodes on the same machine split CPU three ways and changed
-nothing the client could see** — per-node broadcast time did not fall — so
-whether nodes help is a question for separate hosts, not this one. Sharding
+nothing the client could see** — per-node broadcast time did not fall. A
+local Docker experiment can verify the distribution mechanism, which it did,
+but neither warrants "more nodes help" nor refutes it: three containers share
+one VM's cores and network. On cloud infrastructure the same lever could be
+load-bearing; that is where it has to be measured. Sharding
 the hot channel is out of scope and written down as a discussion point.
 
 ---
@@ -278,10 +281,12 @@ make the fallback more correct than the fast path.
 single snapshot (0.17 vs 0.14ms — 98 rows in `shared_buffers` beat a network
 hop) and no faster under a 5,000-client reconnect storm (p99 22ms either way).
 Under 25,000 *polling* clients it cuts request p99 3.5x and takes 17 points off
-Postgres while adding ~30 to the API. Under push it is nearly idle. It stays,
-because Redis is running anyway as Centrifugo's engine and the toggle
-(`LATEST_PRICE_SOURCE`) is what made the decision measurable; a production
-version on push could drop it.
+Postgres while adding ~30 to the API. Under push it is nearly idle. It stays: a
+laptop where Postgres and Redis are both in-memory neighbours cannot say what
+a managed Postgres across a subnet would cost, and on cloud infrastructure the
+cache could be load-bearing for the reasons the plan gave. The local result is
+"not needed here", not "not needed"; the toggle (`LATEST_PRICE_SOURCE`) is
+there to measure it again where it might be.
 
 ---
 

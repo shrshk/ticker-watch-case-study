@@ -317,10 +317,11 @@ final Scenario B batch is `measurements.md` §8.12 with steady-state CPU.
   no snapshot-latency benefit at one request or at a 5,000-request burst; under
   25k *polling* clients it buys p99 3.5x and 17 DB points for ~30 API points;
   under push it is nearly idle, and the broker on the same Redis moves ~6
-  msg/s (§8.7). A production version on push could drop the cache and run
-  Postgres as the sole snapshot source. Whether the case study *ships* that
-  way, or ships both paths with the toggle and this finding, is a call for
-  the author, not the measurement.
+  msg/s (§8.7). On this machine the cache is not load-bearing on push. That is a statement
+  about one Docker VM where Postgres and Redis are in-memory neighbours, not
+  about cloud infrastructure, where the same cache could be load-bearing for
+  the reasons the plan gave. Decision: the cache and the toggle both stay; the
+  finding is stated as "not needed here" and the next measurement named.
 - **Scenario G (artificially slow Postgres) not run.** The durable write is
   off the delivery path by construction (concurrent with cache and publish);
   the plan asked for it to be shown under a stall. Deferred - low risk, and
