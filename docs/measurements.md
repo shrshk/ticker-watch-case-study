@@ -642,6 +642,68 @@ numbers are reported.
 
 ---
 
+### 8.4 Scenario D - reconnect storm, cached vs uncached
+
+10,000 push clients; at +25s half of them disconnect and reconnect at once.
+Every reconnect re-runs the snapshot - subscribe, then `GET /watchlist` - so
+this is a 5,000-request burst on the snapshot path, run under both values of
+`LATEST_PRICE_SOURCE`.
+
+| read path | reconnected | snapshot p50 | p95 | p99 | errors | API CPU | DB CPU |
+|---|---|---|---|---|---|---|---|
+| redis | 5,000 / 5,000 | 1.5ms | 8.3ms | 22.4ms | 0 | 94% | 28% |
+| postgres | 5,000 / 5,000 | 1.4ms | 5.2ms | 19.2ms | 0 | 91% | 33% |
+
+**The cache does not make the snapshot faster, even under the burst that was
+supposed to justify it.** Plan §9 anticipated writing "Redis was Nx faster
+under a 200k-lookup burst"; the measured N is below 1. `latest_prices` is 98
+rows in `shared_buffers`, and a point lookup there beats a Redis round trip
+from the same VM, at one request and at five thousand.
+
+What the cache *does* buy is visible in the DB column: **five points of
+Postgres CPU** at this burst size. Its justification is offload under
+sustained load, not latency - section 2b shows Postgres at 127% under 25,000
+polling clients *with* the cache in front of it. Section 8.7 measures the same
+load without it, which is the number that decides whether the cache stays.
+
+Also worth stating: 5,000 simultaneous reconnects, each a subscribe plus a
+snapshot, completed with zero errors and a 22ms p99 on both paths. The
+subscribe-then-snapshot ordering (plan §10) cost nothing measurable.
+
+### 8.5 Scenario E - slow consumers
+
+2,000 push clients, 10% of them blocking 3s on every publication - a client
+that cannot keep up. `client.queue_max_size` lowered from 1 MiB to 8 KiB for
+the run so the queue fills in seconds rather than hours at this message rate.
+
+| | |
+|---|---|
+| slow readers | ~200 |
+| **disconnected by Centrifugo, code 3012 (slow)** | **155** |
+| update latency, all clients | p50 **39ms**, p95 3,014ms, p99 13,045ms, max 26s |
+| realtime errors | 0 |
+
+**Slow consumers hurt only themselves.** The p50 is 39ms - the fast 90% never
+noticed. The p95/p99 tail *is* the slow clients, measured while they were
+still connected and blocking: by construction they see every message late,
+until the server's queue for them overflows and it disconnects them. That is
+Centrifugo's actual mechanism - a bounded per-client queue and a disconnect,
+no per-client conflation - and the number to report is the disconnect count.
+A disconnected client recovers through the same path as a reconnect: subscribe,
+snapshot, drain.
+
+At the default 1 MiB queue, at ~200 bytes per publication and ~4 messages per
+second per client, a reader would have to fall roughly twenty minutes behind
+before being cut. The 5-second cadence makes this a far milder problem than a
+tick-by-tick feed would have.
+
+One measurement note: the generator's own count of slow disconnects read 0,
+because it checked the disconnect code in a way centrifuge-go does not surface
+it. Centrifugo's `num_server_disconnects{code="3012"}` is the authority and
+is what the harness now reports; the client-side figure is printed as
+"client-observed, not trusted". Another instance of the phase 2 rule: the
+broker's counter, not the client's inference.
+
 ## 7. What this does not yet answer
 
 Deliberately not measured yet, because it belongs to phase 3:
