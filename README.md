@@ -10,9 +10,10 @@ simplest thing that worked, where it broke, what replaced it, and what that
 cost. Every number in it was measured on one laptop and says so where the
 laptop, rather than the design, set the limit.
 
-The original brief is preserved at [`archive/ORIGINAL_README.md`](archive/ORIGINAL_README.md);
-the implementation plan, with the sections that measurement overturned
-corrected in place and dated, is [`plans/ticker-watch-plan.md`](plans/ticker-watch-plan.md).
+The original brief is preserved at [`archive/ORIGINAL_README.md`](archive/ORIGINAL_README.md).
+Every measurement is in [`docs/measurements.md`](docs/measurements.md); what
+was deliberately not built, and where the measurements stop, is in
+[`docs/limitations-and-next-steps.md`](docs/limitations-and-next-steps.md).
 
 ---
 
@@ -64,7 +65,7 @@ packages `solution.zip`. See *Before you submit* at the end.
 | remove from the watchlist | `DELETE /watchlist/items/{id}` |
 | see current prices | `GET /watchlist` returns membership **and** prices in one call |
 | **prices update every 5 seconds** | the price service ticks every 5s; changed tickers are pushed to subscribed clients within ~100ms of the tick (measured below) |
-| designed for millions of users, each with a watchlist | 1M users / 9.7M rows seeded and measured; read latency flat from 10k to 1M (§*Where polling broke*) |
+| designed for millions of users, each with a watchlist | 1M users / 9.7M rows seeded and measured; read latency flat from 10k to 1M (*Where polling broke*) |
 | user data persisted and reused across restarts | Postgres volume; demo state also shipped as `db/demo.sql` and loaded on first start |
 | focus on architecture and service↔client communication | the transport comparison is the spine of this document |
 | login, one screen, unpolished UI | bcrypt + short-lived JWT with rotated refresh tokens; one screen |
@@ -143,8 +144,7 @@ seeded with `COPY` in 136s:
 
 Every read is a point lookup on an indexed key; row count does not enter.
 
-**The API was.** 4 uvicorn workers, simulated prices, one batch, after the
-review below removed a write from the read path:
+**The API was.** 4 uvicorn workers, simulated prices, one batch:
 
 | clients | req/s | p50 | p99 | errors | API CPU |
 |---|---|---|---|---|---|
@@ -284,7 +284,7 @@ Under 25,000 *polling* clients it cuts request p99 3.5x and takes 17 points off
 Postgres while adding ~30 to the API. Under push it is nearly idle. It stays: a
 laptop where Postgres and Redis are both in-memory neighbours cannot say what
 a managed Postgres across a subnet would cost, and on cloud infrastructure the
-cache could be load-bearing for the reasons the plan gave. The local result is
+cache could be load-bearing for the reasons it was designed in. The local result is
 "not needed here", not "not needed"; the toggle (`LATEST_PRICE_SOURCE`) is
 there to measure it again where it might be.
 
@@ -292,9 +292,9 @@ there to measure it again where it might be.
 
 ## The broker experiment
 
-Redis serves as both the price cache and Centrifugo's engine. The plan called
-that contention "the most interesting scaling question in the system" and
-made the broker swappable to measure it: `make up BROKER=nats` mounts a
+Redis serves as both the price cache and Centrifugo's engine. That contention
+was expected to be the most interesting scaling question in the system, so
+the broker was made swappable to measure it: `make up BROKER=nats` mounts a
 different Centrifugo config and adds a NATS container, with **no application
 code changed** — the price service only ever talks to Centrifugo's API.
 
@@ -365,12 +365,12 @@ unindexed; two values do not justify a join.
 
 Each one: where it came from, and what would change if it were wrong.
 
-1. **The catalog is 99 tickers.** Measured against the vendor. The plan assumed
+1. **The catalog is 99 tickers.** Measured against the vendor. The design assumed
    ~10k. If it were 10k: one call still covers it (the endpoint takes the whole
    list), search needs the `pg_trgm` indexes that today are inert, and the
    simulator's change ratio becomes the dominant load lever.
 2. **One vendor call covers the universe.** Measured: all 99 in one request,
-   ~180ms. Removes plan §7's "poll the union of watchlisted tickers" entirely.
+   ~180ms. Removes the design's "poll the union of watchlisted tickers" entirely.
 3. **`effective_at` is our observation time.** The vendor returns no
    timestamp. If it did, the guards would compare vendor time and the
    source-switch reconciliation would need to account for clock skew.
@@ -498,15 +498,15 @@ the docs quote is registered.
 make restart
 make seed-million                          # 1M users, ~2.5 min
 make db-bench                              # server-side read latency
-tools/bench/scenario_b.sh 5000 10000 20000 # poll vs push, one batch
-tools/bench/scenario_d.sh 10000            # reconnect storm, both read paths
-tools/bench/scenario_e.sh 2000             # slow consumers
-tools/bench/scenario_f.sh 5000 10000 20000 # celebrity ticker
-tools/bench/scenario_i.sh 10000            # Redis engine vs NATS broker
-NODES=3 tools/bench/scenario_f_scale.sh 50000 6
+tools/bench/transport_comparison.sh 5000 10000 20000   # poll vs push, one batch
+tools/bench/reconnect_storm.sh 10000                   # both read paths
+tools/bench/slow_consumers.sh 2000
+tools/bench/hot_ticker.sh 5000 10000 20000
+tools/bench/broker_comparison.sh 10000                 # Redis engine vs NATS
+NODES=3 tools/bench/hot_ticker_scale.sh 50000 6
 ```
 
-Every harness refuses to run on live prices (the first Scenario B ladder
+Every harness refuses to run on live prices (the first transport ladder
 crossed 16:00 ET and measured a frozen market), rebuilds the generator image
 first, asserts the service under test is configured as the results will
 claim, and exits non-zero on a silent run. The load generator is a separate Go
@@ -528,7 +528,7 @@ zip. `db/demo.sql` ships too and seeds a reviewer's first start; regenerate it
 with `make db-dump` against a stack with no load-test users if the demo state
 changes.
 
-The review that preceded phase 3 — what it found, what was fixed, what was
-deferred with a reason — is [`docs/review-before-phase3.md`](docs/review-before-phase3.md).
-Its recurring lesson is the one this project would pass on: a number is not
-evidence until the thing it summarises has been looked at directly.
+Known limitations, deliberate cuts and the next measurements are in
+[`docs/limitations-and-next-steps.md`](docs/limitations-and-next-steps.md).
+The lesson this build would pass on: a number is not evidence until the thing
+it summarises has been looked at directly.

@@ -1,5 +1,5 @@
 # Core stack: postgres, redis, api, price-service, client.
-# Centrifugo arrives in phase 3 behind the `push` profile, so the polling
+# Centrifugo is the push transport behind the `push` profile, so the polling
 # version stays honestly standalone rather than push-minus-a-flag.
 
 x-python-env: &python-env

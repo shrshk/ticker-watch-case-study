@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scenario F at scale: extend the fanout curve past what one generator can hold.
+# Hot ticker at scale: extend the fanout curve past what one generator can hold.
 # N generator containers run in parallel, each with CLIENTS/N connections, all
 # subscribing to the celebrity ticker. The metric that matters is Centrifugo's
 # own broadcast-duration histogram (global, reset by recreating the container
@@ -7,8 +7,8 @@
 # percentiles cannot be merged across them. Total VM CPU is recorded so an
 # environment ceiling is not misread as a broker one.
 #
-#   tools/bench/scenario_f_scale.sh 50000 2
-#   tools/bench/scenario_f_scale.sh 100000 4
+#   tools/bench/hot_ticker_scale.sh 50000 2
+#   tools/bench/hot_ticker_scale.sh 100000 4
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_simulated

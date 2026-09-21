@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Scenario E - slow consumers. A share of clients block per message; the
+# slow consumers. A share of clients block per message; the
 # server's outbound queue for each grows to client.queue_max_size and then the
 # server disconnects them. There is no per-client conflation. Count it.
 # The queue is set deliberately small for the run so it fills in seconds
 # rather than hours at this message rate.
-#   tools/bench/scenario_e.sh 2000
+#   tools/bench/slow_consumers.sh 2000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_simulated

@@ -1,6 +1,6 @@
 """FastAPI app: business APIs only.
 
-It does not own realtime fanout. In phase 3 it gains POST /realtime/token and
+It does not own realtime fanout. In push it gains POST /realtime/token and
 Centrifugo takes the client connections.
 """
 
@@ -81,7 +81,7 @@ async def health() -> dict:
     health depend on it would deadlock `docker compose up --wait` on a cold
     start. Schema state is reported, not asserted.
 
-    Used by the phase-2 load targets to refuse to run against a half-started
+    Used by the load targets to refuse to run against a half-started
     stack, where the numbers look real and are not.
     """
     settings = get_settings()

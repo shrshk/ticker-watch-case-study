@@ -1,6 +1,6 @@
 // TRANSPORT=push: centrifuge-js behind the same interface as polling.
 //
-// The ordering rule, on connect AND on every reconnect (plan §10):
+// The ordering rule, on connect AND on every reconnect :
 //   1. subscribe to ticker:* for the watchlist, buffering events without applying
 //   2. GET /watchlist for membership and snapshot prices
 //   3. apply the snapshot

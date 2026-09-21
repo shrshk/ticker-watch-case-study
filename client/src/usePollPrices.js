@@ -6,7 +6,7 @@
 //
 // TRANSPORT=poll  - setInterval on GET /watchlist, jittered so clients do not
 //                   align into synchronised spikes.
-// TRANSPORT=push  - phase 3: centrifuge-js behind this same interface.
+// TRANSPORT=push  - centrifuge-js behind this same interface.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from './api';

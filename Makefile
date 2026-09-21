@@ -155,7 +155,7 @@ submit: submit-check ## Package the project into solution.zip (runs submit-check
 	rm -f solution.zip
 	zip -r solution.zip . \
 	    -x '.git/*' '*/.git/*' '*node_modules/*' '*__pycache__/*' '*/.venv/*' '.venv/*' \
-	       '.run/*' '*/.run/*' '*.pytest_cache/*' '*.ruff_cache/*' '*.idea/*' '*.DS_Store' \
+	       '.run/*' '*/.run/*' 'notes/*' '*.pytest_cache/*' '*.ruff_cache/*' '*.idea/*' '*.DS_Store' \
 	       'solution.zip'
 	@echo "solution.zip: $$(unzip -l solution.zip | tail -1 | awk '{print $$2}') files, $$(du -h solution.zip | cut -f1)"
 	@if unzip -l solution.zip | grep -qE 'node_modules|\.git/|\.run/|\.venv/|__pycache__'; then \

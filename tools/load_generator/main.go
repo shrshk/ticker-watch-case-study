@@ -42,10 +42,10 @@ type config struct {
 	userIDMax    int
 
 	// Push-only scenario knobs. Zero values mean "off".
-	celebrity     string        // every client also subscribes to this ticker (Scenario F)
-	stormAt       time.Duration // at this offset, storm clients disconnect and reconnect (Scenario D)
+	celebrity     string        // every client also subscribes to this ticker (the hot-ticker run)
+	stormAt       time.Duration // at this offset, storm clients disconnect and reconnect (the reconnect storm)
 	stormFraction float64       // share of clients that take part in the storm
-	slowFraction  float64       // share of clients that read slowly (Scenario E)
+	slowFraction  float64       // share of clients that read slowly (the slow-consumer run)
 	slowDelay     time.Duration // how long a slow client blocks per publication
 	measureAfter  time.Duration // discard update-latency samples before this offset (ramp)
 }

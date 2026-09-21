@@ -1,4 +1,4 @@
-# Shared pieces for the phase-3 scenario harnesses. Source, do not run.
+# Shared pieces for the benchmark harnesses. Source, do not run.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 DURATION="${DURATION:-45s}"
@@ -79,7 +79,7 @@ field() { sed -n "s/^$1 *//p" <<<"$2" | head -1; }
 
 require_simulated() {
   # A benchmark against live market data is not reproducible, and the vendor
-  # freezes at 16:00 ET - the first Scenario B ladder crossed the close and
+  # freezes at 16:00 ET - the first the transport comparison ladder crossed the close and
   # its last three rows measured nothing. Refuse rather than record silence.
   local src; src="$(sed -n 's/^PRICE_SOURCE=//p' .env)"
   if [ "${src}" != "simulated" ]; then

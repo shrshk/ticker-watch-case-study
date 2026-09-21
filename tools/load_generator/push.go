@@ -229,7 +229,7 @@ func pushClient(
 	for _, it := range snap.Items {
 		tickers = append(tickers, it.Ticker)
 	}
-	// Scenario F: everyone also watches the celebrity, so its channel carries
+	// the hot-ticker run: everyone also watches the celebrity, so its channel carries
 	// one subscriber per connection.
 	if cfg.celebrity != "" {
 		seen := false
@@ -267,7 +267,7 @@ func pushClient(
 		})
 	}
 
-	// Scenario D: at stormAt, this client drops and comes straight back. The
+	// the reconnect storm: at stormAt, this client drops and comes straight back. The
 	// reconnect re-runs the snapshot - subscribe first, then GET /watchlist -
 	// which is the burst the snapshot path has to absorb.
 	if inStorm {

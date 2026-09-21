@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scenario B: identical load under both transports, side by side.
+# Transport comparison: identical load under both transports, side by side.
 #
 # For each client count: run polling with the price service NOT publishing
 # (TRANSPORT=poll), then push with it publishing (TRANSPORT=push). Same
@@ -7,7 +7,7 @@
 # rate, update latency at the client, per-service CPU, and - for push - the
 # bytes Centrifugo actually sent to clients, from its own counters.
 #
-#   tools/bench/scenario_b.sh 5000 10000 20000
+#   tools/bench/transport_comparison.sh 5000 10000 20000
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

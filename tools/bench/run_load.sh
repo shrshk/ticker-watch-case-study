@@ -16,7 +16,7 @@ mkdir -p "${OUT}" "$(dirname "${BIN}")"
 
 # GENERATOR=host runs the generator natively; GENERATOR=container runs it
 # inside the Compose network. Comparing the two separates an application
-# ceiling from an environment ceiling - see README question 9.
+# ceiling from an environment ceiling - see docs/measurements.md, Methodology.
 GENERATOR="${GENERATOR:-host}"
 
 if [ "${GENERATOR}" = "host" ]; then

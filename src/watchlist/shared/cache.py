@@ -72,7 +72,7 @@ async def set_prices_if_newer(
     """Guarded write for many tickers in one round trip. Returns (written, rejected).
 
     98 sequential EVALSHA calls were ~30ms per tick. A pipeline is one round
-    trip, and in phase 3 the same loop gains a publish per ticker.
+    trip, and under push the same loop gains a publish per ticker.
     """
     if _cas is None:
         await register_scripts()

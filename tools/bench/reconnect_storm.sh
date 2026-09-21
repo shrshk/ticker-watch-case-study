@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Scenario D - reconnect storm. Half the clients drop and reconnect at once;
+# reconnect storm. Half the clients drop and reconnect at once;
 # every reconnect is a snapshot, so this is a GET /watchlist burst.
 # Run it under both read paths (LATEST_PRICE_SOURCE=redis|postgres) so the
 # caching decision is measured under the one load that should justify it.
-#   tools/bench/scenario_d.sh 10000
+#   tools/bench/reconnect_storm.sh 10000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_simulated

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Scenario I - broker comparison. The same push load and the same reconnect
+# broker comparison. The same push load and the same reconnect
 # storm under Centrifugo's Redis engine and under a NATS broker. No
 # application code changes between the two - only which config Centrifugo
 # loads and which container is running.
-#   tools/bench/scenario_i.sh 10000
+#   tools/bench/broker_comparison.sh 10000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_simulated

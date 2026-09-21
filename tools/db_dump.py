@@ -1,7 +1,7 @@
 """Dump the demo database - and refuse to dump a benchmark one.
 
 The scaffold's `make submit` said it dumped the database and never did; the
-volume also lives outside the project directory and, after phase 2, holds a
+volume also lives outside the project directory and, after the polling measurements, holds a
 million load-test users. This writes the *sensible* version: schema plus the
 demo state - the 99 securities, latest_prices, user1/user2 and their watchlists
 - to db/demo.sql, which Postgres loads automatically on a fresh volume via

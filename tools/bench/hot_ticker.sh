@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Scenario F - celebrity ticker. Every connection also subscribes to one
+# celebrity ticker. Every connection also subscribes to one
 # ticker, so its channel carries one subscriber per client. Per-channel
 # broadcast cost comes from Centrifugo's own histogram; the client-side view
 # is that channel's update latency against the rest.
-#   tools/bench/scenario_f.sh 5000 10000 20000
+#   tools/bench/hot_ticker.sh 5000 10000 20000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 require_simulated

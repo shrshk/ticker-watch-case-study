@@ -9,7 +9,7 @@ Each publish tick:
   2. detect which tickers actually changed
   3. write *every* current price to the Redis cache, guarded on effective_at
   4. upsert *changed* prices into latest_prices, guarded on effective_at
-  5. (phase 3) publish *changed* tickers to Centrifugo
+  5.  publish *changed* tickers to Centrifugo
 
 The three writes deliberately have different scopes. The cache is a picture of
 what is current, so refreshing it every tick keeps a quiet ticker from expiring
@@ -63,7 +63,7 @@ class PriceService:
         self._last_upstream_fetch: float = 0.0
         self._upstream_prices: dict[str, float] = {}
         # Counters. Where a production system would add resilience this one
-        # adds a metric; these are what phase 4 exports to Prometheus.
+        # adds a metric; these are what are exported to Prometheus.
         self.stats = {
             "ticks": 0,
             "updates_received": 0,

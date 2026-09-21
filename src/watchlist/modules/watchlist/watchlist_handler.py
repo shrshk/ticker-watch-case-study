@@ -1,7 +1,7 @@
 """Watchlist membership and the price snapshot.
 
 `GET /watchlist` returns membership and prices together. Two round trips on app
-load is a worse story than one, and it keeps the phase 3 subscribe-ordering
+load is a worse story than one, and it keeps the push subscribe-ordering
 rule simple: subscribe, then take one snapshot, then drain.
 """
 
