@@ -411,6 +411,60 @@ phase 3 has to substantiate with the same measurements.
 
 ---
 
+## 7. Watcher distribution, and a bug that made it meaningless
+
+Popularity is Zipf-distributed with s=1.1 across 1M users and 9.68M watchlist
+rows. Measured after reseeding:
+
+| rank | ticker | watchers | share | cumulative |
+|---|---|---|---|---|
+| 1 | NVDA | 958,428 | 9.91% | 9.9% |
+| 2 | TSLA | 787,540 | 8.14% | 18.0% |
+| 3 | AAPL | 629,354 | 6.50% | 24.6% |
+| 4 | AMZN | 513,858 | 5.31% | 29.9% |
+| 5 | META | 429,113 | 4.44% | 34.3% |
+| … | | | | |
+| 10 | COIN | 228,055 | 2.36% | 49.3% |
+| 99 | CMG | 20,393 | 0.21% | 100% |
+
+Ten tickers carry half of all subscriptions; the tail sits around 20,000.
+
+**This was wrong until it was checked.** The Zipf draw assigns weight by
+position in a list, and the list was `securities ORDER BY id` - which, because
+the catalog is inserted alphabetically, meant ranking alphabetically. The
+resulting distribution had the correct *shape* and absurd *content*: Airbnb was
+the second most-watched stock in the world, Abbott Laboratories third, and NVDA
+sat in the tail.
+
+Nothing about the load numbers changes - the shape drives the load, and the
+shape was always right. What it would have broken is everything that depends on
+*which* ticker is hot: a demo a reviewer looks at, and Scenario F, which needs
+a named celebrity ticker with a plausible following. Ranking is now an explicit
+`POPULARITY` list in the seeder, with unlisted tickers shuffled deterministically
+behind it so the tail is not alphabetical either.
+
+The general shape of the mistake is worth keeping: a statistical property was
+verified (skew present, exponent right) while the mapping underneath it was
+never looked at. Aggregates agreeing with theory is not evidence that the rows
+mean anything.
+
+### Why this matters for phase 3
+
+At 25,000 connections with ten subscriptions each, NVDA's 9.91% share means
+**roughly every connected client subscribes to it**. Per-ticker channels solve
+publish amplification - one publish per changed ticker per tick, regardless of
+watchers - but fanout is still one socket write per subscriber, concentrated in
+a single channel. A hot ticker moving means ~25,000 writes in one burst.
+
+Plan section 12 argues the celebrity problem is "largely solved by
+construction". That is right for publish and unproven for fanout. Phase 3
+measures per-channel broadcast cost directly, and carries one pre-planned
+mitigation: sharding a hot channel into `ticker:NVDA:{0..N}` with clients
+hashed across shards, trading N publishes for parallel fanout. It gets built
+only if the measurement asks for it.
+
+---
+
 ## 7. What this does not yet answer
 
 Deliberately not measured yet, because it belongs to phase 3:

@@ -41,8 +41,51 @@ OVERSAMPLE = 6
 COPY_BATCH = 50_000
 
 # Stock popularity is heavily skewed. s=1.1 puts the most-watched ticker on
-# roughly a third of watchlists and leaves a long tail in the tens.
+# roughly a tenth of all watchlist rows and leaves a long tail.
 ZIPF_EXPONENT = 1.1
+
+# Which ticker gets which rank matters as much as the shape of the curve.
+# Ranking by security id means ranking alphabetically, which made Airbnb the
+# second most-watched stock and left NVDA in the tail - a distribution that is
+# statistically fine and visibly absurd, and useless for naming a celebrity
+# ticker in a fanout test.
+#
+# Rough retail-attention order. Tickers not listed keep a deterministic
+# shuffled order behind these, so the tail is not alphabetical either.
+POPULARITY = [
+    "NVDA",
+    "TSLA",
+    "AAPL",
+    "AMZN",
+    "META",
+    "MSFT",
+    "GOOG",
+    "AMD",
+    "PLTR",
+    "COIN",
+    "GME",
+    "NFLX",
+    "INTC",
+    "HOOD",
+    "SHOP",
+    "UBER",
+    "DIS",
+    "SNAP",
+    "SPOT",
+    "NIO",
+    "F",
+    "BAC",
+    "PYPL",
+    "MRNA",
+    "ABNB",
+    "LYFT",
+    "AFRM",
+    "SBUX",
+    "BYND",
+    "PTON",
+    "T",
+    "KO",
+]
 
 
 def zipf_cum_weights(n: int, exponent: float = ZIPF_EXPONENT) -> list[float]:
@@ -52,6 +95,21 @@ def zipf_cum_weights(n: int, exponent: float = ZIPF_EXPONENT) -> list[float]:
         total += 1.0 / rank**exponent
         cumulative.append(total)
     return cumulative
+
+
+def rank_securities(rows, seed: int) -> list[int]:
+    """Order security ids by popularity, most-watched first.
+
+    The Zipf draw assigns weight by position, so this decides which ticker is
+    the celebrity. Listed tickers take their listed rank; everything else is
+    shuffled deterministically behind them rather than left alphabetical.
+    """
+    by_ticker = {r["ticker"]: r["id"] for r in rows}
+
+    ranked = [by_ticker[t] for t in POPULARITY if t in by_ticker]
+    remainder = [r["id"] for r in rows if r["id"] not in set(ranked)]
+    random.Random(seed).shuffle(remainder)
+    return ranked + remainder
 
 
 async def pad_catalog(conn: asyncpg.Connection, target: int) -> int:
@@ -109,9 +167,10 @@ async def seed(preset: str, catalog_size: int | None, truncate: bool) -> None:
             added = await pad_catalog(conn, catalog_size)
             print(f"catalog: added {added:,} synthetic securities")
 
-        security_ids = [r["id"] for r in await conn.fetch("SELECT id FROM securities ORDER BY id")]
-        if not security_ids:
+        rows = await conn.fetch("SELECT id, ticker FROM securities ORDER BY id")
+        if not rows:
             raise SystemExit("no securities; run 'make migrate' and start the price service")
+        security_ids = rank_securities(rows, settings.sim_seed)
         print(f"catalog: {len(security_ids):,} securities")
 
         # One bcrypt hash, reused for every seeded user. bcrypt is deliberately

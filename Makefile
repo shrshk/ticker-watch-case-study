@@ -63,13 +63,13 @@ reset-prices: ## Clear latest_prices and price:* so PRICE_SOURCE can be switched
 # -- load seeds --------------------------------------------------------------
 
 seed-small: ## Seed 10k users / ~100k watchlist rows
-	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py small
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py small $(if $(TRUNCATE),--truncate)
 
 seed-medium: ## Seed 100k users / ~1M watchlist rows
-	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py medium
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py medium $(if $(TRUNCATE),--truncate)
 
-seed-million: ## Seed 1M users / ~10M watchlist rows
-	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py million
+seed-million: ## Seed 1M users / ~10M watchlist rows (TRUNCATE=1 to reseed from scratch)
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py million $(if $(TRUNCATE),--truncate)
 
 seed-clear: ## Remove every seeded load user (leaves demo users and securities)
 	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py small --truncate --securities 0 || true
