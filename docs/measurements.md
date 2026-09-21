@@ -525,6 +525,65 @@ only if the measurement asks for it.
 
 ---
 
+## 8. Push - the transport comparison (phase 3)
+
+Centrifugo v6.9.6 behind the `push` Compose profile; the price service
+publishes one message per *changed* ticker per tick through Centrifugo's HTTP
+API; clients subscribe to `ticker:<T>` channels, take one `GET /watchlist`
+snapshot after subscribing, and drain. Update latency is measured at the
+client from the publication's `effective_at` - the same metric, measured the
+same way, as polling.
+
+### 8.1 First contact, live market data
+
+200 clients, 40s, real vendor prices during market hours:
+
+| | polling (phase 2, same client count) | push |
+|---|---|---|
+| HTTP requests/sec | 40 (clients / 5s) | **5** (one snapshot per connection, then none) |
+| update latency p50 / p95 / p99 | 2,518 / 4,763 / 4,961ms | **22 / 30 / 32ms** |
+| errors | 0 | 0 |
+| subscriptions | - | 1,943 (~9.7 per client, one channel per ticker) |
+
+### 8.2 Scenario B on live data - and why it is not the headline table
+
+The first ladder ran against `PRICE_SOURCE=api` during market hours. Two
+pairs completed cleanly:
+
+| clients | transport | http req/s | upd p50 | upd p95 | upd p99 | API | DB | Centrifugo | B/client/min |
+|---|---|---|---|---|---|---|---|---|---|
+| 5,000 | poll | 943 | 2,584ms | 4,742ms | 4,942ms | 100% | 26% | - | 15,923 |
+| 5,000 | **push** | 111 | **165ms** | **295ms** | **376ms** | 75% | 23% | 54% | 14,045 |
+| 10,000 | poll | 1,886 | 2,555ms | 4,738ms | 4,938ms | 155% | 50% | - | 15,928 |
+| 10,000 | **push** | 222 | **333ms** | **560ms** | **652ms** | 133% | 41% | 101% | 14,367 |
+
+Then the 20,000-push, 25,000-poll and 25,000-push rows recorded **no
+updates at all**, and push egress fell to 1,876 bytes per client per minute -
+exactly one snapshot and nothing after it. The ladder had crossed **16:00 ET**
+and the vendor froze at the close. The rows are not a system failure; they
+measured a market that had stopped moving. (Inference from timing and the
+egress signature; the price-service logs from that window were lost to a
+container recreate.)
+
+This is the plan's own argument for benchmarking on simulated prices - a
+controlled comparison needs identical movement on both sides, and live data
+cannot provide that even inside market hours - which the earlier phases wrote
+down and this run did not follow. Every harness now refuses to start unless
+`PRICE_SOURCE=simulated`, in `.env` *and* in the running container.
+
+Two things the live rows still say, because they are consistent with the
+controlled run below: **update latency drops by an order of magnitude and
+more**, and **egress per client is close to polling's at this change ratio**
+(~40% of tickers moving per tick live, against the simulator's 30%) - push
+saves bandwidth in proportion to how much *does not* change, and on a busy day
+that is less than the arithmetic in section 3 suggests.
+
+### 8.3 Scenario B, controlled
+
+<!-- SCENARIO-B-SIM -->
+
+---
+
 ## 7. What this does not yet answer
 
 Deliberately not measured yet, because it belongs to phase 3:

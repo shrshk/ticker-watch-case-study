@@ -6,6 +6,7 @@
 #   tools/bench/scenario_f.sh 5000 10000 20000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_simulated
 TICKER="${TICKER:-NVDA}"
 RANGE="$(user_range)"
 ${COMPOSE_PUSH} build load-generator >/dev/null

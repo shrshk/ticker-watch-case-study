@@ -6,6 +6,7 @@
 #   tools/bench/scenario_d.sh 10000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_simulated
 CLIENTS="${1:-10000}"
 RANGE="$(user_range)"
 ${COMPOSE_PUSH} build load-generator >/dev/null

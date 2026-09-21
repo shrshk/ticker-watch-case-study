@@ -72,3 +72,17 @@ run_gen() {  # args... - run the generator, print its report, fail loudly on sil
 }
 
 field() { sed -n "s/^$1 *//p" <<<"$2" | head -1; }
+
+require_simulated() {
+  # A benchmark against live market data is not reproducible, and the vendor
+  # freezes at 16:00 ET - the first Scenario B ladder crossed the close and
+  # its last three rows measured nothing. Refuse rather than record silence.
+  local src; src="$(sed -n 's/^PRICE_SOURCE=//p' .env)"
+  if [ "${src}" != "simulated" ]; then
+    echo "REFUSING: PRICE_SOURCE=${src:-unset}; benchmarks run on simulated prices only." >&2
+    echo "  set PRICE_SOURCE=simulated in .env and 'make restart' - the service adopts the real rows." >&2
+    exit 1
+  fi
+  local live; live="$(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$(docker compose ps -q price-service)" | sed -n 's/^PRICE_SOURCE=//p')"
+  [ "${live}" = "simulated" ] || { echo "REFUSING: price-service container runs PRICE_SOURCE=${live}; make restart" >&2; exit 1; }
+}

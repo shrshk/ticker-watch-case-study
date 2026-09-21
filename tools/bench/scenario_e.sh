@@ -7,6 +7,7 @@
 #   tools/bench/scenario_e.sh 2000
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_simulated
 CLIENTS="${1:-2000}"
 QUEUE="${QUEUE:-8192}"
 RANGE="$(user_range)"

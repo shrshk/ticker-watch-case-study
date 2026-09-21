@@ -15,6 +15,8 @@ cd "${ROOT}"
 DURATION="${DURATION:-45s}"
 LOGICAL_USERS="${LOGICAL_USERS:-1000000}"
 WORK="$(mktemp -d)"; trap 'rm -rf "${WORK}"' EXIT
+source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+require_simulated
 
 COMPOSE="docker compose --profile push --profile load"
 
