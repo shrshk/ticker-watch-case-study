@@ -262,8 +262,15 @@ batch, zero errors throughout):
 | 4 | 3,743 | 936 | 121.4ms |
 | 8 | 5,188 | 649 | 497.3ms |
 
-Four to eight bought 39% more throughput for 20% more CPU per request, because
-API and Postgres together already draw 832% of the VM's 1000%.
+Four to eight bought 39% more throughput for 20% more CPU per request.
+
+**The contended resource is the CPU run queue, not Postgres.** Measured during
+saturation: 111-126 of 128 Postgres backends sit `idle, waiting on Client` -
+the database waiting for the API, not the reverse - while the VM's load average
+is 21.6-24.4 and `procs_running` is 27-44, against 10 CPUs, with
+`procs_blocked` at 1-2. Thirty to forty runnable processes for ten cores. Past
+four workers you are adding contenders to a queue that is already 2.4x deep,
+which is why p99 degrades faster than throughput.
 
 **Shortening the interval buys latency at a proportional cost in clients.** The
 server responds only to request rate, not to the interval — the same ~2,810
@@ -275,6 +282,27 @@ server latency and a 5x spread in update latency. So the ceiling divides:
 | 2.5s | 5s | ~20,000 | 50 |
 | 1.0s | 2s | ~8,000 | 125 |
 | 0.5s | 1s | ~5,000 | 200 |
+
+### Why the latency argument is the decisive one
+
+The case for push has two halves, and they are not equally strong.
+
+**Update latency is a capability argument.** `p50 = interval/2` is arithmetic.
+No amount of hardware, workers, caching or tuning changes it. The only polling
+lever is a shorter interval, and that divides the client ceiling by the same
+factor it divides latency. Push makes the cadence a config change rather than a
+capacity purchase.
+
+**Per-request work is a cost argument.** Token decode, two Postgres round trips
+and JSON serialisation of the whole watchlist cost 1.35ms of CPU, paid every
+interval per client whether or not anything moved - and at a 30% change ratio
+about 70% of each response is data the client already had. That one *can* be
+answered with money: 40 stacks at 5s, 200 at 1s.
+
+A cost argument can be overruled by a budget. A capability argument cannot. So
+the latency result is what should decide the architecture, and the CPU saving
+is what makes push cheaper as well as better rather than what makes it
+necessary.
 
 **What push will cost, stated honestly:** connection state, reconnect handling,
 the snapshot/subscribe ordering problem, slow-consumer management, and one more

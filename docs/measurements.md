@@ -258,6 +258,43 @@ the last clean point; at eight it is already 497–644ms. If the bar is "p99
 under 100ms" rather than "no errors", four workers is the better
 configuration on this machine.
 
+### Which resource is actually contended - measured, not inferred
+
+At eight workers and 28,000 clients, neither component is internally saturated.
+The API is at 543% of a possible 800%, and Postgres looks busy at 289% but is
+mostly waiting for work:
+
+```
+ state  | waiting_on | count        <- pg_stat_activity, 3 samples
+ idle   | Client     |   113           128 backends open
+ active | LWLock     |    12
+ active | (on cpu)   |     2
+```
+
+**111-126 of 128 Postgres backends sit `idle`, waiting on Client** - that is
+Postgres waiting for the API to send it a query, not the API waiting for
+Postgres. Only 2-16 backends are active at any instant, which is consistent
+with ~10,000 short queries per second each taking a fraction of a millisecond.
+
+The contended resource is the VM's CPU run queue:
+
+| metric | value | against |
+|---|---|---|
+| load average (1 min) | 21.6 - 24.4 | 10 CPUs |
+| `procs_running` | 27 - 44 | 10 CPUs |
+| `procs_blocked` | 1 - 2 | ~nothing on I/O |
+
+Thirty to forty runnable processes against ten cores. A worker that is ready to
+serve waits for a core, not for the database, and `procs_blocked` near zero
+rules out I/O.
+
+So Postgres is a shared *component* in the Amdahl sense - every worker funnels
+through it, so its cost does not parallelise away - but it is not the saturated
+resource. Past four workers, adding more simply adds contenders to a run queue
+that is already 2.4x deep. This is also why p99 degrades faster than throughput:
+the wait is scheduling delay, which grows with the number of runnable
+processes, not service time.
+
 ### The first 8-worker attempt measured the wrong thing
 
 Worth recording, because the failure looked exactly like a CPU ceiling and was
