@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     postgres_dsn: str = "postgresql://postgres:postgres@db:5432/postgres"
     redis_url: str = "redis://redis:6379/0"
 
+    # The pool is PER PROCESS. Total connections to Postgres is
+    # (uvicorn workers x db_pool_max_size) + the price service's own pool, and
+    # that total must stay under the server's max_connections. Scaling workers
+    # without accounting for this exhausts the database rather than adding
+    # capacity - see docs/measurements.md, section 5.
+    db_pool_min_size: int = 2
+    db_pool_max_size: int = 16
+
     # Auth. The same secret signs Centrifugo connection tokens.
     jwt_secret: str = "dev-only-not-a-secret"
     jwt_ttl_seconds: int = 86_400

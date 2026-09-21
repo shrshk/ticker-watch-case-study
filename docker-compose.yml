@@ -18,10 +18,15 @@ x-python-env: &python-env
   SIM_SEED: ${SIM_SEED:-1}
   TRANSPORT: ${TRANSPORT:-poll}
   UVICORN_ARGS: ${UVICORN_ARGS:-}
+  DB_POOL_MIN_SIZE: ${DB_POOL_MIN_SIZE:-2}
+  DB_POOL_MAX_SIZE: ${DB_POOL_MAX_SIZE:-16}
 
 services:
   db:
     image: postgres:16-alpine
+    # Default is 100, which an 8-worker API exhausts: each worker opens its own
+    # pool, so the total is workers x DB_POOL_MAX_SIZE plus the price service.
+    command: postgres -c max_connections=200
     environment:
       POSTGRES_DB: postgres
       POSTGRES_USER: postgres

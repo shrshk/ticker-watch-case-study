@@ -221,49 +221,160 @@ well below the 25,000 where the application actually breaks.
 
 ---
 
-## 5. Does the ceiling move with CPU?
+## 5. Does adding workers move the ceiling?
 
-The plan's discriminator for "application limit or infrastructure limit": change
-the CPU available to the application and see whether the ceiling moves with it.
+All runs in this section were taken back to back in one batch, 4 uvicorn
+workers per column unless stated, 40s each, generator in a container. Read the
+note on drift below before comparing them with section 2.
 
-| workers | clients | req/s | p50 | API CPU | DB CPU | verdict |
-|---|---|---|---|---|---|---|
-| 4 | 25,000 | 4,782 | 7.8ms | 383% | 194% | healthy, API at 96% of budget |
-| 4 | 30,000 | 3,758 | 4,045ms | 422% | 273% | collapsed |
-| 8 | 30,000 | 3,193 | 74ms | 509% | 284% | collapsed, and no better |
+| workers | clients | req/s | p50 | p95 | p99 | errors | API CPU | DB CPU |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 3,000 | 562 | 1.8ms | 4.1ms | 11.4ms | 0 | 58% | 25% |
+| 1 | 5,000 | 936 | 2.2ms | 4.9ms | 14.5ms | 0 | 86% | 40% |
+| 2 | 8,000 | 1,496 | 2.8ms | 11.6ms | 22.8ms | 0 | 115% | 63% |
+| 2 | 11,000 | 2,058 | 3.3ms | 14.8ms | 29.6ms | 0 | 162% | 98% |
+| 4 | 16,000 | 2,992 | 4.3ms | 12.7ms | 26.8ms | 0 | 284% | 137% |
+| 4 | 20,000 | 3,743 | 10.4ms | 69.4ms | 121.4ms | 0 | 331% | 178% |
+| 8 | 24,000 | 4,482 | 15.7ms | 389.9ms | 644.0ms | 0 | 477% | 256% |
+| 8 | 28,000 | 5,188 | 23.9ms | 270.4ms | 497.3ms | 0 | 543% | 289% |
 
-Doubling the workers did **not** move the ceiling. Full accounting during the
-8-worker run explains why:
+**Yes, but sub-linearly, and it stops paying at eight.**
+
+| workers | best clean req/s | req/s per worker | API CPU per req/s |
+|---|---|---|---|
+| 1 | 936 | 936 | 0.092% |
+| 2 | 2,058 | 1,029 | 0.079% |
+| 4 | 3,743 | 936 | 0.088% |
+| 8 | 5,188 | 649 | 0.105% |
+
+Throughput per worker holds roughly flat from one to four, then drops to 69% of
+that at eight, and each request costs about 20% more CPU. The machine is the
+reason: at eight workers the API and Postgres together draw 832% of the 1000%
+the VM has, before the load generator's own ~50%. Doubling from four to eight
+bought 39% more throughput, and a further doubling would buy less than that.
+
+Latency degrades well before throughput does. At four workers p99 is 121ms at
+the last clean point; at eight it is already 497–644ms. If the bar is "p99
+under 100ms" rather than "no errors", four workers is the better
+configuration on this machine.
+
+### The first 8-worker attempt measured the wrong thing
+
+Worth recording, because the failure looked exactly like a CPU ceiling and was
+not one. The initial 8-worker runs produced 31,641 errors at a load four
+workers had handled cleanly, and the obvious reading was that the machine had
+run out of CPU. Checking the database instead of believing the graph:
 
 ```
-api              509.5%
-db               284.3%
-load-generator    48.9%
-redis              9.2%
-client/price-svc   0.1%
-------------------------
-TOTAL            851.8%   of 1000% available
+psql: FATAL:  sorry, too many clients already
 ```
 
-At four workers the limit is the application's own CPU budget: the API saturates
-its 400% while the machine still has headroom. At eight workers that budget is
-gone and the limit becomes the machine — API plus Postgres alone consume 79% of
-every core in the VM, and past roughly 85% utilisation scheduling latency
-dominates and throughput degrades.
+**The connection pool is per process.** Each uvicorn worker opens its own pool,
+so the server-wide total is `workers x DB_POOL_MAX_SIZE` plus the price
+service's pool. At the defaults that is 4 x 16 = 64, comfortably under
+Postgres's stock `max_connections = 100`. Doubling the workers makes it 128,
+which is not. Scaling workers was silently exhausting the database rather than
+adding capacity.
 
-So the honest statement is: **the 4-worker ceiling is an application
-configuration limit, and the hardware ceiling is immediately behind it.** On
-this laptop the two are about the same number, which is why "add more workers"
-was not a fix.
+Two fixes, both in this repo now:
 
-One caveat stated plainly: the load generator shares the VM with the server, so
-it consumes CPU the server could have used. It is small — 49% of 1000%, about
-half a core — but it is not zero, and a dedicated load machine would move these
-numbers up somewhat.
+- Pool size is configuration (`DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE`) rather
+  than a hardcoded default, with the arithmetic stated where it is set, and the
+  API logs the pool size it opened per process.
+- Postgres runs with `max_connections=200`, enough for eight workers plus the
+  price service with headroom.
+
+After the fix, eight workers produced 5,188 req/s with zero errors at the same
+load that previously produced 31,641. The numbers above are all post-fix.
+
+The general lesson is the one that makes a benchmark worth anything: a ceiling
+is not explained until you have found the thing that is actually full. CPU was
+at 500% of 800% available and looked plausible; the real limit was a resource
+nobody had counted.
+
+### Measurement drift between batches
+
+Absolute throughput drifted downward over a long session. The same
+configuration - 4 workers, 25,000 clients - gave 4,782 req/s with a 88.8ms p99
+early on, and 3,810-4,011 req/s with a 9-12s p99 several hours later, across
+three consecutive runs that agreed with each other.
+
+The cause was not the application, and not database bloat: `latest_prices` is
+updated continuously but autovacuum held it at 72 kB with 129 autovacuum runs,
+and the large tables are read-only during a run. The most likely explanation is
+thermal, on a laptop that had been at high sustained multi-core load for hours.
+macOS did not record a thermal warning, so this is inference rather than
+measurement.
+
+**Consequence for reading these tables: only compare numbers taken within the
+same batch.** Every table in this section is one back-to-back batch for exactly
+that reason. Section 2's absolute figures are from an earlier, cooler session
+and its *shape* - the knee, the collapse signature - is what carries, not its
+exact throughput.
 
 ---
 
-## 6. What this does not yet answer
+## 6. What shortening the poll interval costs
+
+Polling has exactly one lever for update latency: poll more often. Section 2
+showed p50 tracks interval/2. This measures the bill.
+
+### The server does not care about the interval, only the rate
+
+Same ~2,810 req/s at three intervals, 4 workers, by scaling clients to match:
+
+| interval | clients | req/s | req p50 | req p95 | req p99 | update p50 | errors |
+|---|---|---|---|---|---|---|---|
+| 5s | 15,000 | 2,805 | 3.1ms | 10.7ms | 20.8ms | 2,518ms | 0 |
+| 2s | 6,000 | 2,809 | 2.9ms | 9.9ms | 19.1ms | 1,026ms | 0 |
+| 1s | 3,000 | 2,811 | 3.1ms | 13.9ms | 22.9ms | 495ms | 0 |
+
+Throughput matches to within 6 requests per second, and server-side latency is
+indistinguishable. Update latency improves five-fold. **Request rate is the
+only thing the server responds to; the interval just sets the exchange rate
+between rate and clients.**
+
+### So the client ceiling divides by the same factor
+
+At a 1s interval, 4 workers:
+
+| interval | clients | req/s | req p99 | update p50 | errors |
+|---|---|---|---|---|---|
+| 1s | 3,000 | 2,811 | 11.2ms | 495ms | 0 |
+| 1s | 4,000 | 3,745 | 21.1ms | 515ms | 0 |
+| 1s | 5,000 | 4,679 | 140.5ms | 514ms | 0 |
+
+Against the 5s ceiling of about 20,000 clients in the same batch, a 1s interval
+supports about 5,000 - a quarter of the clients for a fifth of the latency.
+
+One mild surprise, and it goes the right way: 5,000 clients at 1s sustained
+4,679 req/s, *more* than 20,000 clients at 5s sustained (3,743 req/s). Fewer,
+busier connections are cheaper to serve than many idle ones, so the exchange is
+slightly better than one-for-one. Connection count has a cost of its own,
+independent of request rate.
+
+### The arithmetic that phase 3 has to beat
+
+To reach sub-second update latency by polling, on this machine:
+
+| target update p50 | interval needed | clients per stack | stacks for 1M clients |
+|---|---|---|---|
+| 2.5s | 5s | ~20,000 | 50 |
+| 1.0s | 2s | ~8,000 | 125 |
+| 0.5s | 1s | ~5,000 | 200 |
+
+And adding workers does not rescue it: four to eight bought 39% more
+throughput, so the ceiling is a property of the machine well before it is a
+property of the configuration.
+
+Push decouples the two entirely. One broadcast per changed ticker per tick,
+fanned out by the broker, with no relationship between update latency and
+client request rate - because there are no client requests. That is the claim
+phase 3 has to substantiate with the same measurements.
+
+---
+
+## 7. What this does not yet answer
 
 Deliberately not measured yet, because it belongs to phase 3:
 
@@ -285,13 +396,24 @@ No number will be written here until it has been measured.
 
 ```bash
 make bootstrap
-make reset-prices && make up PRICE_SOURCE=simulated   # deterministic movement
 make seed-million                                     # ~2.5 minutes
-make db-bench
 
-# Set UVICORN_ARGS=--workers 4 in .env first - see the note in .env.example.
-make load-container CLIENTS=25000 DURATION=60s
+# Benchmark settings go in .env, never inline: `docker compose run` recreates
+# depends_on services from .env, so an inline override is silently dropped and
+# the run then measures a different server than the results claim. Set:
+#   PRICE_SOURCE=simulated      deterministic movement, works out of hours
+#   UVICORN_ARGS=--workers 4
+make reset-prices && make restart
+
+make db-bench
+make load-container CLIENTS=20000 DURATION=60s
+tools/bench/worker_scaling.sh 1:3000,5000 2:8000,11000 4:16000,20000 8:24000,28000
+tools/bench/interval_tradeoff.sh equal-rate
+tools/bench/interval_tradeoff.sh ceiling
 ```
+
+Take any comparison within a single batch. Absolute throughput drifts across a
+long session; see the drift note in section 5.
 
 Results land in `.run/results/`, and each file records the API command, the
 worker count and which generator produced it.

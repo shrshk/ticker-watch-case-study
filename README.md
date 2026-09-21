@@ -250,10 +250,48 @@ already had. Extrapolating the measured per-client cost:
 Forty API stacks to deliver mostly-unchanged data every five seconds is the
 argument for push, as a number rather than an opinion.
 
+### Neither lever rescues polling
+
+**More workers scale sub-linearly and stop paying at eight** (one back-to-back
+batch, zero errors throughout):
+
+| workers | best clean req/s | req/s per worker | p99 |
+|---|---|---|---|
+| 1 | 936 | 936 | 14.5ms |
+| 2 | 2,058 | 1,029 | 29.6ms |
+| 4 | 3,743 | 936 | 121.4ms |
+| 8 | 5,188 | 649 | 497.3ms |
+
+Four to eight bought 39% more throughput for 20% more CPU per request, because
+API and Postgres together already draw 832% of the VM's 1000%.
+
+**Shortening the interval buys latency at a proportional cost in clients.** The
+server responds only to request rate, not to the interval — the same ~2,810
+req/s at 5s/15,000 clients, 2s/6,000 and 1s/3,000, with indistinguishable
+server latency and a 5x spread in update latency. So the ceiling divides:
+
+| target update p50 | interval | clients per stack | stacks for 1M clients |
+|---|---|---|---|
+| 2.5s | 5s | ~20,000 | 50 |
+| 1.0s | 2s | ~8,000 | 125 |
+| 0.5s | 1s | ~5,000 | 200 |
+
 **What push will cost, stated honestly:** connection state, reconnect handling,
 the snapshot/subscribe ordering problem, slow-consumer management, and one more
 component to run. Phase 3 runs identical load under both and publishes the
 comparison.
+
+### One measurement bug worth naming
+
+The first 8-worker runs produced 31,641 errors and looked exactly like a CPU
+ceiling. It was `FATAL: sorry, too many clients already` — the connection pool
+is **per process**, so eight workers opened 8 x 16 = 128 connections against
+Postgres's stock `max_connections = 100`. Pool size is now configuration with
+the arithmetic written where it is set, `max_connections` is 200, and the API
+logs the pool it opened. After the fix the same load ran with zero errors.
+
+A ceiling is not explained until you have found the resource that is actually
+full; CPU at 500% of 800% looked plausible and was not the answer.
 
 ---
 
