@@ -728,13 +728,13 @@ latency growth seen in Scenario B is total fanout volume across all channels,
 not the celebrity. Plan §12's "solved by construction" holds for publish
 *and*, at this scale, for fanout.
 
-**Where it would stop holding.** Linear extrapolation puts one broadcast to
-500,000 subscribers near 160ms, on top of everything else the node is doing.
-That is the point at which sharding the hot channel (`ticker:NVDA:{0..N}`,
-clients hashed across shards) trades N publishes for parallel fanout. Not
-built: the measurement does not ask for it below ~100k subscribers per
-channel, and the plan's rule is to build against a measured need. It is
-written down here so the trigger is known rather than rediscovered.
+**Where it would stop holding - corrected by 8.10.** This section first
+extrapolated linearly to ~160ms at 500,000 subscribers. Section 8.10 then
+measured 50,000 and found the growth **superlinear**: the per-subscriber cost
+roughly doubles between 20k and 50k, and the hot channel's tail separates from
+the rest. The knee on one node is between 25k and 50k subscribers per
+channel, not near 500k. The linear figure is left struck through in the
+history; the conclusion that follows from the data is in 8.10.
 
 Two honest limits of this run: NVDA changed only 2-3 times per 45s window at
 the 30% ratio, so the per-channel latency figures rest on a few thousand
@@ -810,9 +810,85 @@ discovered by building both paths and toggling between them. The toggle
 | 1 | At what client count does polling stop being the right answer, and what does push cost? | Polling's ceiling is ~30,000 clients on this machine (§2b) with update latency fixed at ~2.5s by arithmetic. Push holds 72-344ms p50 across 5k-25k at 2.4x less egress; it costs connection state, one snapshot per connect, and fanout CPU that grows linearly with subscribers (~0.12ms/delivery). |
 | 4 | How many realtime connections can one Centrifugo node sustain locally? | 25,000 connections with 241,737 subscriptions, zero errors, at 164% CPU. Not pushed to failure; the generator, not Centrifugo, is the next limit to find. |
 | 5 | Does one Redis doing cache and broker degrade snapshot latency, and does NATS remove it? | No degradation exists to remove at ~6 broker msg/s (§8.7). |
-| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | Linearly, ~0.3µs per subscriber per publication; 6.4ms at 20k, extrapolating to ~160ms at 500k, where channel sharding becomes worth building (§8.6). |
+| 6 | How does per-channel broadcast cost scale toward 500k subscribers? | **Superlinearly.** ~0.15µs/subscriber at 5k, 0.32 at 20k, 0.74 at 50k (37ms per broadcast); the hot channel's tail separates from the rest between 25k and 50k on one node. 100k was beyond this environment to measure. Levers in order: more nodes, then in-node channel sharding, not Redis sharding (§8.10). |
 | 7 | What happens to slow clients? | Centrifugo disconnects them (155 of ~200 at an 8 KiB queue); nobody else notices, p50 39ms (§8.5). |
 | 8 | Does `latest_prices` persistence affect realtime latency? | No - the durable write runs concurrently with cache and publish and is not on the delivery path. Not stress-tested with an artificially slow Postgres (plan Scenario G); deferred. |
+
+### 8.10 The fanout curve, extended: 50k, and what 100k taught about the environment
+
+One generator container holds ~25,000 connections, so these runs used two and
+four containers in parallel (`tools/bench/scenario_f_scale.sh`), every client
+subscribing to `ticker:NVDA`. Ramp-up was stretched to 30-40s so the snapshot
+burst stayed under the API's measured ceiling; Centrifugo was recreated before
+each run for a fresh histogram.
+
+| NVDA subscribers | connections reached | broadcast duration: mean / p95 / p99 | per-subscriber | all-channel upd p50 / p99 | **NVDA upd p50 / p99** | Centrifugo CPU peak / steady | Centrifugo mem | errors |
+|---|---|---|---|---|---|---|---|---|
+| 5,000 | 5,000 | 0.73ms / ≤5 / ≤10ms | 0.15µs | - / 167ms | 91 / 168ms | 49% | - | 0 |
+| 10,000 | 10,000 | 2.20ms / ≤25 / ≤25ms | 0.22µs | - / 268ms | 177 / 279ms | 58% | - | 0 |
+| 20,000 | 20,000 | 6.43ms / ≤50 / ≤100ms | 0.32µs | - / 730ms | 523 / 770ms | 137% | - | 0 |
+| 25,000 | 25,002 | 6.22ms / ≤50 / ≤100ms | 0.25µs | 313 / 644ms | 376 / 694ms | 115% / 45% | 1.46 GiB | 0 |
+| **50,000** | **49,919** | **36.99ms / ≤250 / ≤500ms** | **0.74µs** | 638 / ~1,550ms | **893 / ~1,730ms** | 333% / 92% | 2.84 GiB | 166 (0.3%) |
+| 100,000 (attempted) | 74k-97k, unstable | 210.9ms / ≤1,000 / ≤2,500ms | - | ~1,330 / ~9,000ms | ~1,940 / ~6,900ms | 368% / 149% | 5.75 GiB | ~35,000 |
+
+**The growth is superlinear.** Doubling subscribers from 25k to 50k multiplied
+broadcast time by six (6.2 → 37ms) and per-subscriber cost by three. The
+linear model in 8.6 was fitted to 5k-20k and does not survive contact with
+50k. The 500k extrapolation is withdrawn.
+
+**The hot channel's tail separates at 50k.** At 20k, NVDA's p99 was within 5%
+of the all-channel p99. At 50k NVDA's p50 is 39% higher than everyone
+else's (893 vs 638ms). This is the hot-ticker effect actually appearing, and
+it appears between 25k and 50k subscribers on one node - not at hundreds of
+thousands.
+
+**100k is beyond this environment, and the table says so rather than
+pretending otherwise.** Connections never stabilised (peaked ~97k, fell to
+74k, ~35k client-side errors); the VM's ten cores were oversubscribed - Centrifugo 368%
+plus the API's 327% ramp plus four generator containers at ~220% each. The
+210ms broadcast mean is real and the histogram is Centrifugo's own, but it
+cannot be attributed to the broker rather than to CPU starvation, and a number
+that cannot be attributed is not a measurement. Plan §22's method for this
+(move the generator to another host; if the ceiling moves, it was the
+environment) needs a second machine.
+
+**On the 50k row itself, one caveat in each direction.** The histogram includes
+the 30s ramp, during which fanout reached *fewer* subscribers, so the steady-
+state mean is if anything above 37ms. Against that, generator containers ran
+at ~104% steady each alongside Centrifugo's 92%, leaving headroom - so the
+superlinearity at 50k is more plausibly Centrifugo's own broadcast cost
+growing with channel size than starvation. More plausibly; not proven.
+
+**What this changes in the conclusion.** One Centrifugo node on this hardware
+handles a channel with every client on it cleanly to ~25k subscribers,
+degrades measurably by 50k, and is unmeasurable here at 100k. The levers, in
+order, when a hot channel outgrows a node:
+
+1. **More Centrifugo nodes.** Each node subscribes to a channel on the engine
+   *once*, however many local clients want it, and fans out only to its own
+   connections. The engine distributes fanout by node, automatically. This is
+   why Redis stayed at 4-11% CPU with 25k-75k clients: it is not in the
+   per-client delivery path at all.
+2. **Shard the hot channel within a node** (`ticker:NVDA:{0..N}`, clients
+   hashed across shards) to run one channel's broadcast on several cores
+   instead of one. Same total work, shorter tail.
+3. **Not Redis sharding.** Redis Cluster's classic pub/sub broadcasts every
+   publish to every cluster node - worse, not better. Redis 7 sharded pub/sub
+   (which Centrifugo supports) and Centrifugo's own consistent-hashing across
+   independent Redis instances both spread *broker* load, which at ~6 msg/s is
+   not a load. Neither moves a single client write. It is the intuitive fix and
+   the wrong layer.
+
+None of this is built. It belongs in the case-study discussion: the design
+removed the expensive half of the celebrity problem (publish amplification) by
+construction; the measurement located where the remaining half (fanout) starts
+to cost on one node, and named the levers in the order they should be pulled.
+
+**Harness note.** The first 50k attempt was silently a 25k run: two concurrent
+`docker compose run`s raced on the API's `depends_on` and the second died with
+a container-name conflict. `--no-deps` fixed it; the row above is the re-run.
+Same failure class as everything in the review doc - the artefact under test
+was not the one the label claimed.
 
 ## 7. What this does not yet answer
 

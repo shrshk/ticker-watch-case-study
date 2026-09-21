@@ -312,9 +312,10 @@ Status: **deferred to after phase 3**, then done before `make submit`.
   the plan asked for it to be shown under a stall. Deferred - low risk, and
   the harness pattern to do it (a `pg_sleep` trigger on `latest_prices`) is
   ten minutes if wanted.
-- **Centrifugo's own ceiling not found.** 25,000 connections at 164% CPU with
-  zero errors; the next limit to hit is more likely the single generator
-  container than the broker. Finding it needs a second generator host.
+- **Centrifugo's hot-channel knee is between 25k and 50k on this hardware** (§8.10):
+  clean at 25k, superlinear by 50k, unmeasurable at 100k because the VM
+  saturated. Attributing the 100k result needs a second host for the
+  generators. Sharding stays a discussion point, not code.
 - **Generator-side disconnect codes are untrusted** (§8.5); harnesses read
   Centrifugo's counters. A small centrifuge-go fix would restore the
   client-side figure; not worth doing until something needs it.

@@ -343,9 +343,13 @@ The other phase 3 scenarios, each in [`docs/measurements.md`](docs/measurements.
   the Redis cache made it *no faster* than reading Postgres directly.
 - **Slow consumers**: Centrifugo disconnected 155 of ~200 deliberately-slow
   readers; everyone else's p50 stayed at 39ms.
-- **Celebrity ticker**: fanout cost is linear in subscribers, ~6ms to reach
-  20,000; the hot channel's tail is within 5% of the average. Sharding is
-  written down as the lever for ~500k, and not built.
+- **Celebrity ticker**: one node fans out cleanly to ~25,000 subscribers on a
+  single channel (6ms per broadcast); by 50,000 the cost is superlinear (37ms)
+  and the hot channel's tail separates from the rest. 100,000 exceeded what
+  this laptop can measure honestly. The levers, in order: more Centrifugo
+  nodes (the engine distributes fanout by node), then sharding the channel
+  within a node - and not Redis sharding, which is the wrong layer. Not built;
+  written down with the numbers.
 - **Redis vs NATS broker**: indistinguishable at ~6 broker messages a second.
   The swap touched two config files and no code, and bought nothing.
 - **What the cache is for**: under 25k polling clients it cuts request p99
