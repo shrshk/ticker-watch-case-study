@@ -14,6 +14,19 @@ class RegisterRequest(LoginRequest):
     last_name: str = ""
 
 
+class Principal(BaseModel):
+    """Who is calling, straight from the verified token. No database read.
+
+    A stateless token is trusted for its lifetime; that is the trade. Revoking
+    a user before their token expires needs a denylist or a short TTL, and
+    neither is built here. What this buys is one fewer query on every request,
+    which at 5,000 polls per second is not a rounding error.
+    """
+
+    id: int
+    username: str
+
+
 class User(BaseModel):
     id: int
     username: str

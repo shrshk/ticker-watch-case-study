@@ -47,11 +47,24 @@ async def create(
 
 
 async def default_watchlist_id(conn: asyncpg.Connection, user_id: int) -> int:
-    """Every user has exactly one watchlist. Create it lazily for seeded rows."""
-    row = await conn.fetchrow(
+    """Every user has exactly one watchlist.
+
+    Read first, create only on a miss. The previous version was a single
+    INSERT ... ON CONFLICT DO UPDATE, which is elegant and wrong on the read
+    path: Postgres performs the UPDATE even when nothing changes, so every
+    GET /watchlist wrote a tuple version, a WAL record and took a row lock.
+    pg_stat_user_tables showed 8.8M updates on `watchlists` from polling alone.
+    """
+    watchlist_id = await conn.fetchval(
+        "SELECT id FROM watchlists WHERE user_id = $1 AND name = 'default'", user_id
+    )
+    if watchlist_id is not None:
+        return watchlist_id
+    # Registration and seeding both create the row, so this path is for rows
+    # that predate them. ON CONFLICT covers a concurrent first request.
+    return await conn.fetchval(
         "INSERT INTO watchlists (user_id, name) VALUES ($1, 'default') "
         "ON CONFLICT (user_id, name) DO UPDATE SET name = EXCLUDED.name "
         "RETURNING id",
         user_id,
     )
-    return row["id"]

@@ -43,6 +43,13 @@ async function request(path, { method = 'GET', body, token } = {}) {
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
 
+  if (response.status === 401 && token) {
+    // The token is dead - expired, or the secret rotated. Polling on with it
+    // would fail every 5s forever. Drop the session and let the app react.
+    clearSession();
+    window.dispatchEvent(new Event('watchlist:unauthorized'));
+  }
+
   if (!response.ok) {
     let detail;
     try {

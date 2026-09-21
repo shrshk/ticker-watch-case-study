@@ -200,20 +200,24 @@ enforce — one of the structural costs of polling, not an implementation detail
 
 Full tables and method in [`docs/measurements.md`](docs/measurements.md).
 
-**Polling breaks between 25,000 and 27,500 concurrent clients** on this laptop
-— about 5,000 requests per second, with the API on 4 uvicorn workers.
+**Polling breaks between 30,000 and 32,500 concurrent clients** on this laptop
+— about 5,650 requests per second, with the API on 4 uvicorn workers.
+Re-measured after the pre-phase-3 review removed a write from the read path
+(see below); before that fix the same stack broke at 25,000–27,500.
 
-| clients | req/s | p50 | p99 | errors | API CPU |
-|---|---|---|---|---|---|
-| 15,000 | 2,871 | 2.7ms | 14.5ms | 0 | 317% |
-| **25,000** | **4,782** | **7.8ms** | **72.7ms** | **0** | **383% of 400%** |
-| 27,500 | 3,762 | 855ms | 19,281ms | 263 | 417% |
-| 30,000 | 3,758 | 4,045ms | 21,605ms | 555 | 422% |
+| clients | req/s | p50 | p95 | p99 | errors | API CPU | DB CPU |
+|---|---|---|---|---|---|---|---|
+| 16,000 | 3,018 | 2.0ms | 7.3ms | 21.1ms | 0 | 234% | 79% |
+| 20,000 | 3,772 | 3.8ms | 15.2ms | 27.7ms | 0 | 280% | 95% |
+| 25,000 | 4,712 | 4.6ms | 19.3ms | 36.5ms | 0 | 343% | 119% |
+| 27,500 | 5,182 | 7.8ms | 45.1ms | 85.0ms | 0 | 392% of 400% | 134% |
+| **30,000** | **5,653** | **5.5ms** | **31.5ms** | **65.7ms** | **0** | **382%** | **155%** |
+| 32,500 | 4,433 | 69.4ms | 11,256ms | 17,964ms | 87 | 408% | 157% |
 
-It is congestive collapse, not a plateau: past the knee throughput *falls*,
-p50 rises 500-fold, and API memory grows from 228 MB to over 1.1 GB as requests
-queue. The API exhausts its worker CPU first; Postgres is at 194% and Redis at
-13% when it goes.
+When it breaks it is congestive collapse, not a plateau: past the knee
+throughput *falls*, p50 rises hundreds-fold, and API memory grows several-fold
+as requests queue. The API exhausts its worker CPU first. The full before/after
+is in [`docs/measurements.md`](docs/measurements.md) §2 and §2b.
 
 **Update latency is fixed by the interval, not by load.** Measured at the
 client, from a price's `effective_at` to the moment a client sees it:
@@ -293,8 +297,8 @@ lever is a shorter interval, and that divides the client ceiling by the same
 factor it divides latency. Push makes the cadence a config change rather than a
 capacity purchase.
 
-**Per-request work is a cost argument.** Token decode, two Postgres round trips
-and JSON serialisation of the whole watchlist cost 1.35ms of CPU, paid every
+**Per-request work is a cost argument.** Token decode, a Postgres membership
+query, a Redis `MGET` and JSON serialisation of the whole watchlist, paid every
 interval per client whether or not anything moved - and at a 30% change ratio
 about 70% of each response is data the client already had. That one *can* be
 answered with money: 40 stacks at 5s, 200 at 1s.
@@ -308,6 +312,20 @@ necessary.
 the snapshot/subscribe ordering problem, slow-consumer management, and one more
 component to run. Phase 3 runs identical load under both and publishes the
 comparison.
+
+### What the pre-phase-3 review changed
+
+A cold read of the code before phase 3 found that **the read path was writing
+to Postgres on every poll** — the watchlist was resolved with
+`INSERT … ON CONFLICT DO UPDATE`, which Postgres executes as a real UPDATE even
+when nothing changes; `pg_stat_user_tables` showed 8.8M updates on `watchlists`
+from polling alone — and that **every request looked the user up in the
+database** despite carrying a verified token. Both are fixed: the resolve is a
+`SELECT`, and the caller's identity comes from the token (the trade is that a
+revoked user's token stays valid until it expires; `/auth/me` is the one place
+the database is consulted). The ceiling figures above were re-measured after
+the fix; the full list of findings is in
+[`docs/review-before-phase3.md`](docs/review-before-phase3.md).
 
 ### One measurement bug worth naming
 
@@ -515,10 +533,16 @@ apart. The client's `simulated prices` badge is derived the same way, from the
 
 ### Search
 
-Postgres only, with `pg_trgm` indexes. Ranked exact ticker → ticker prefix →
-name prefix → fuzzy name, so `NV` matches NVDA, NVAX and NVR while `NVDA` ranks
-itself first. Real symbols matter here; invented tickers would not exercise it.
-No Elasticsearch unless a measured requirement justifies one.
+Postgres only. Ranked exact ticker → ticker prefix → name prefix → fuzzy name,
+so `NV` matches NVDA, NVAX and NVR while `NVDA` ranks itself first. Real symbols
+matter here; invented tickers would not exercise it. No Elasticsearch unless a
+measured requirement justifies one.
+
+`pg_trgm` GIN indexes exist on `ticker` and `name` for when the catalog grows.
+At 99 rows they are inert: the planner sequential-scans, and trigram matching
+needs three characters so a two-letter query could not use them regardless.
+They are stated here so nobody reads them as the reason search is fast — it is
+fast because the table is tiny.
 
 ---
 
@@ -581,7 +605,7 @@ make up-detached && make migrate   # the integration tests need the stack
 make test
 ```
 
-52 tests. They run against a separate `watchlist_test` database created and
+59 tests. They run against a separate `watchlist_test` database created and
 dropped per run, so a test run never touches the demo data. They cover the
 claims this README makes rather than the code's surface area:
 
@@ -593,6 +617,7 @@ claims this README makes rather than the code's surface area:
 | `test_search.py` | `NV` → NVDA/NVAX/NVR, exact-ticker ranking, name matching, case insensitivity |
 | `test_simulated_source.py` | Prices stay near real values, the seed reproduces a walk, a price never reaches zero, the change ratio is honoured |
 | `test_handlers.py` | The handler layer: domain errors, watchlist isolation between users, add/remove semantics, and that a security with no price keeps its row |
+| `test_review_regressions.py` | Pins the pre-phase-3 review findings: resolving a watchlist performs no UPDATE (checked via `pg_stat_xact_user_tables`), timestamps sort lexically in chronological order at `.000000`, and the pipelined cache write actually queues |
 
 Lint and format with `make lint` / `make format` (ruff, line length 100).
 

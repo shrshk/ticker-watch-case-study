@@ -15,6 +15,24 @@ cd "${ROOT}"
 
 DURATION="${DURATION:-45s}"
 LOGICAL_USERS="${LOGICAL_USERS:-1000000}"
+
+# The generator impersonates seeded users by id. Read the live range rather
+# than assuming one: a reseed deletes and re-inserts, so ids move.
+USER_MIN="$(cd "${ROOT}" && docker compose exec -T db psql -U postgres -tAc \
+  "SELECT min(id) FROM users WHERE username LIKE 'load\_user\_%'" | tr -d '[:space:]\r')"
+USER_MAX="$(cd "${ROOT}" && docker compose exec -T db psql -U postgres -tAc \
+  "SELECT max(id) FROM users WHERE username LIKE 'load\_user\_%'" | tr -d '[:space:]\r')"
+if [ -z "${USER_MIN}" ] || [ -z "${USER_MAX}" ]; then
+  echo "no seeded load users; run 'make seed-small' first" >&2
+  exit 1
+fi
+USER_RANGE_ARGS="-user-id-min ${USER_MIN} -user-id-max ${USER_MAX}"
+
+# Always rebuild the generator image. A stale image once ran an old binary
+# without the flags this script passes, failed on every run, and the failure
+# was swallowed - four rows of dashes and no error. Build, then refuse silence.
+docker compose --profile load build load-generator >/dev/null
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "${WORK}"' EXIT
 
@@ -54,10 +72,16 @@ run_one() {
 
   docker compose --profile load run --rm load-generator \
     -clients "${clients}" -duration "${DURATION}" \
-    -logical-users "${LOGICAL_USERS}" > "${result}" 2>/dev/null || true
+    -logical-users "${LOGICAL_USERS}" ${USER_RANGE_ARGS} > "${result}" 2> "${WORK}/stderr" || true
 
   rm -f "${sentinel}"
   wait 2>/dev/null || true
+
+  if ! grep -q '^request rate' "${result}"; then
+    echo "generator produced no result for workers=${workers} clients=${clients}:" >&2
+    grep -vE '^ (Container|Network)' "${WORK}/stderr" "${result}" | head -20 >&2
+    exit 1
+  fi
 
   python3 - "${workers}" "${clients}" "${result}" "${stats}" <<'PY'
 import re, sys

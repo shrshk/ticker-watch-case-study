@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help build up down restart logs ps sh migrate createusers createsuperuser \
         capture-prices reset-prices psql redis-cli open-app open-api test lint format \
-        seed-small seed-medium seed-million seed-clear db-bench load bench-transport \
+        seed-small seed-medium seed-million seed-clear db-bench load load-container \
         clean submit bootstrap
 
 # Anything below can be overridden inline, e.g. `make up PRICE_SOURCE=simulated`.
@@ -26,8 +26,10 @@ up-detached: ## Run the whole stack in the background
 down: ## Stop the stack and remove containers
 	$(COMPOSE) down
 
-restart: ## Restart every service
-	$(COMPOSE) restart
+restart: ## Recreate services so .env changes take effect
+	# Not `compose restart`: that reuses each container's existing config and
+	# silently ignores an edited .env. `up -d` recreates whatever changed.
+	$(COMPOSE) up -d
 
 logs: ## Tail logs from every service
 	$(COMPOSE) logs -f

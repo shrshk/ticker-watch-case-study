@@ -66,6 +66,34 @@ async def set_price_if_newer(
     return bool(written)
 
 
+async def set_prices_if_newer(
+    entries: list[tuple[str, dict, str]], ttl_seconds: int
+) -> tuple[int, int]:
+    """Guarded write for many tickers in one round trip. Returns (written, rejected).
+
+    98 sequential EVALSHA calls were ~30ms per tick. A pipeline is one round
+    trip, and in phase 3 the same loop gains a publish per ticker.
+    """
+    if _cas is None:
+        await register_scripts()
+    if not entries:
+        return 0, 0
+    async with client().pipeline(transaction=False) as pipe:
+        for ticker, payload, effective_at_iso in entries:
+            # Awaited even though it targets the pipeline: redis-py's async
+            # Script.__call__ is a coroutine that *queues* the command. Without
+            # the await nothing is queued and the pipeline executes empty -
+            # the regression test for this is what caught it.
+            await _cas(
+                keys=[price_key(ticker)],
+                args=[json.dumps(payload, separators=(",", ":")), effective_at_iso, ttl_seconds],
+                client=pipe,
+            )
+        results = await pipe.execute()
+    written = sum(1 for r in results if r)
+    return written, len(results) - written
+
+
 async def get_prices(tickers: list[str]) -> dict[str, dict]:
     """MGET the whole watchlist in one round trip. Missing keys are simply absent."""
     if not tickers:

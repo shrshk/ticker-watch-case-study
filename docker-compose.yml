@@ -3,7 +3,10 @@
 # version stays honestly standalone rather than push-minus-a-flag.
 
 x-python-env: &python-env
-  ALBERT_API_KEY: ${ALBERT_API_KEY:?set ALBERT_API_KEY in .env}
+  # Optional: only PRICE_SOURCE=api needs it, and the source adapter fails
+  # loudly if it is missing then. Requiring it here would stop a reviewer
+  # without a key from running the stack in simulated mode at all.
+  ALBERT_API_KEY: ${ALBERT_API_KEY:-}
   ALBERT_API_BASE: ${ALBERT_API_BASE:-https://app.albert.com/casestudy}
   POSTGRES_DSN: postgresql://postgres:postgres@db:5432/postgres
   REDIS_URL: redis://redis:6379/0
@@ -76,6 +79,7 @@ services:
       - ./migrations:/app/migrations
     ports:
       - "8000:8000"
+    restart: unless-stopped
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -94,6 +98,14 @@ services:
     environment: *python-env
     command: python -m watchlist.price_service
     restart: unless-stopped
+    # The loop touches /tmp/heartbeat every tick. Without this, `up --wait`
+    # reports the service healthy while it is refusing to start or stuck.
+    healthcheck:
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/heartbeat 2>/dev/null || echo 0) )) -lt 30"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 90s
     volumes:
       - ./src:/app/src
       - ./seed:/app/seed

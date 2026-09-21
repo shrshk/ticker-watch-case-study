@@ -16,14 +16,38 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "${ROOT}"
 
 DURATION="${DURATION:-40s}"
+
+# The generator impersonates seeded users by id. Read the live range rather
+# than assuming one: a reseed deletes and re-inserts, so ids move.
+USER_MIN="$(cd "${ROOT}" && docker compose exec -T db psql -U postgres -tAc \
+  "SELECT min(id) FROM users WHERE username LIKE 'load\_user\_%'" | tr -d '[:space:]\r')"
+USER_MAX="$(cd "${ROOT}" && docker compose exec -T db psql -U postgres -tAc \
+  "SELECT max(id) FROM users WHERE username LIKE 'load\_user\_%'" | tr -d '[:space:]\r')"
+if [ -z "${USER_MIN}" ] || [ -z "${USER_MAX}" ]; then
+  echo "no seeded load users; run 'make seed-small' first" >&2
+  exit 1
+fi
+USER_RANGE_ARGS="-user-id-min ${USER_MIN} -user-id-max ${USER_MAX}"
+
 LOGICAL_USERS="${LOGICAL_USERS:-1000000}"
+
+docker compose --profile load build load-generator >/dev/null
 
 run() {
   local interval="$1" clients="$2"
   local out
+  local errfile
+  errfile="$(mktemp)"
   out="$(docker compose --profile load run --rm load-generator \
           -clients "${clients}" -duration "${DURATION}" -interval "${interval}" \
-          -logical-users "${LOGICAL_USERS}" 2>/dev/null)"
+          -logical-users "${LOGICAL_USERS}" ${USER_RANGE_ARGS} 2> "${errfile}")" || true
+  if ! grep -q '^request rate' <<<"${out}"; then
+    echo "generator produced no result for interval=${interval} clients=${clients}:" >&2
+    grep -vE '^ (Container|Network)' "${errfile}" | head -20 >&2
+    rm -f "${errfile}"
+    exit 1
+  fi
+  rm -f "${errfile}"
 
   local rate p50 p95 p99 upd errs
   rate="$(sed -n 's/^request rate *//p' <<<"${out}")"

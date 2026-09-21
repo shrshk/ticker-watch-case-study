@@ -8,6 +8,34 @@ Raw run logs are written to `.run/results/` and are not committed.
 
 ---
 
+## Corrections after the pre-phase-3 review
+
+Two defects inflated every polling number in sections 2, 5 and 6:
+
+- **The read path wrote on every poll.** `default_watchlist_id` was an
+  `INSERT … ON CONFLICT DO UPDATE`, which Postgres runs as a real UPDATE even
+  when the value is unchanged - a tuple version, a WAL record and a row lock per
+  `GET /watchlist`. `pg_stat_user_tables` showed 8,827,489 updates on
+  `watchlists` from polling. Now a `SELECT`, with the insert only on a miss.
+- **Every request looked the user up.** `current_user` ran
+  `SELECT … FROM users` per request to detect a deleted user, on top of
+  verifying a stateless token. The caller now comes from the token's claims.
+
+So a poll went from three Postgres queries (one a write) plus the price read,
+to one query plus the price read. Section 2b below re-measures the 4-worker
+ceiling after both fixes, in one batch. The earlier tables are kept as they were
+measured; their *shape* stands, their absolute values do not.
+
+Also found and fixed in the same review, without effect on the numbers: a
+lexical timestamp comparison that misordered `.000000` against the rest of its
+second; exception handlers that caught `OSError` when the drivers raise
+`PostgresError` and `RedisError`; `make restart` not applying `.env`; the load
+generator assuming user ids were contiguous from 3 after a reseed had moved
+them; the client never logging out on a 401. Full list with status:
+`docs/review-before-phase3.md`.
+
+---
+
 ## Machine and environment
 
 | | |
@@ -168,6 +196,38 @@ that the service runs out of memory. It does not:
 
 Raising the memory limit would change nothing. Adding worker CPU is the only
 lever, and section 5 shows that on this machine there is not much of it left.
+
+---
+
+## 2b. Where polling breaks - re-measured after the review
+
+The section 2 ladder was taken with the read path writing on every poll (C1 in
+`docs/review-before-phase3.md`) and a per-request user lookup (C4). Both are
+fixed. Same method - 4 workers, container generator, one batch - 45s runs.
+
+| clients | req/s | p50 | p95 | p99 | errors | API CPU | DB CPU |
+|---|---|---|---|---|---|---|---|
+| 16,000 | 3,018 | 2.0ms | 7.3ms | 21.1ms | 0 | 234% | 79% |
+| 20,000 | 3,772 | 3.8ms | 15.2ms | 27.7ms | 0 | 280% | 95% |
+| 25,000 | 4,712 | 4.6ms | 19.3ms | 36.5ms | 0 | 343% | 119% |
+| 27,500 | 5,182 | 7.8ms | 45.1ms | 85.0ms | 0 | 392% | 134% |
+| **30,000** | **5,653** | **5.5ms** | **31.5ms** | **65.7ms** | **0** | **382%** | **155%** |
+| 32,500 | 4,433 | 69.4ms | 11,256ms | 17,964ms | 87 | 408% | 157% |
+
+`n_tup_upd` on `watchlists` was **8,827,826 before and after** the batch:
+~200,000 polls and zero writes.
+
+Compared with section 2 at the same loads, DB CPU roughly halved (137→79% at
+16k, 178→95% at 20k, 282→134% at 27.5k), per-request CPU fell from ~1.35ms to
+~1.02ms, and **27,500 clients - which collapsed before - runs clean at 5,182
+req/s with p99 under 100ms**. **The knee is now between 30,000 and 32,500** - 30,000 runs clean at 5,653 req/s
+with p99 66ms; 32,500 collapses with the familiar signature.
+
+Everything structural in sections 2-6 stands: the collapse signature, update
+latency at `interval/2`, the server responding to request rate not interval,
+workers scaling sub-linearly. What moved is the absolute number, and it moved
+because of a defect, not a tuning change. Treat this table as the baseline
+phase 3 compares against.
 
 ---
 

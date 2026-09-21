@@ -26,6 +26,19 @@ else
   (cd "${ROOT}" && docker compose --profile load build load-generator >/dev/null)
 fi
 
+
+# The generator impersonates seeded users by id. Read the live range rather
+# than assuming one: a reseed deletes and re-inserts, so ids move.
+USER_MIN="$(cd "${ROOT}" && docker compose exec -T db psql -U postgres -tAc \
+  "SELECT min(id) FROM users WHERE username LIKE 'load\_user\_%'" | tr -d '[:space:]\r')"
+USER_MAX="$(cd "${ROOT}" && docker compose exec -T db psql -U postgres -tAc \
+  "SELECT max(id) FROM users WHERE username LIKE 'load\_user\_%'" | tr -d '[:space:]\r')"
+if [ -z "${USER_MIN}" ] || [ -z "${USER_MAX}" ]; then
+  echo "no seeded load users; run 'make seed-small' first" >&2
+  exit 1
+fi
+USER_RANGE_ARGS="-user-id-min ${USER_MIN} -user-id-max ${USER_MAX}"
+
 STAMP="$(date +%Y%m%d-%H%M%S)"
 STATS="${OUT}/stats-${CLIENTS}c-${STAMP}.log"
 RESULT="${OUT}/load-${CLIENTS}c-${STAMP}.log"
@@ -83,10 +96,10 @@ print(n)
 echo
 
 if [ "${GENERATOR}" = "host" ]; then
-  "${BIN}" -clients "${CLIENTS}" -duration "${DURATION}" "$@" | tee -a "${RESULT}"
+  "${BIN}" -clients "${CLIENTS}" -duration "${DURATION}" ${USER_RANGE_ARGS} "$@" | tee -a "${RESULT}"
 else
   (cd "${ROOT}" && docker compose --profile load run --rm load-generator \
-      -clients "${CLIENTS}" -duration "${DURATION}" "$@") | tee -a "${RESULT}"
+      -clients "${CLIENTS}" -duration "${DURATION}" ${USER_RANGE_ARGS} "$@") | tee -a "${RESULT}"
 fi
 
 cleanup

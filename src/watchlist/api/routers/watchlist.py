@@ -4,7 +4,7 @@ import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from watchlist.api.deps import connection, current_user
-from watchlist.modules.auth.auth_schema import User
+from watchlist.modules.auth.auth_schema import Principal
 from watchlist.modules.watchlist import watchlist_handler
 from watchlist.modules.watchlist.watchlist_schema import AddItemRequest, Watchlist
 
@@ -14,7 +14,7 @@ router = APIRouter(prefix="/watchlist", tags=["watchlist"])
 @router.get("", response_model=Watchlist)
 async def get_watchlist(
     conn: asyncpg.Connection = Depends(connection),
-    user: User = Depends(current_user),
+    user: Principal = Depends(current_user),
 ) -> Watchlist:
     return await watchlist_handler.get_watchlist(conn, user.id)
 
@@ -23,7 +23,7 @@ async def get_watchlist(
 async def add_item(
     body: AddItemRequest,
     conn: asyncpg.Connection = Depends(connection),
-    user: User = Depends(current_user),
+    user: Principal = Depends(current_user),
 ) -> Response:
     try:
         await watchlist_handler.add_item(conn, user.id, body.security_id)
@@ -36,7 +36,7 @@ async def add_item(
 async def remove_item(
     security_id: int,
     conn: asyncpg.Connection = Depends(connection),
-    user: User = Depends(current_user),
+    user: Principal = Depends(current_user),
 ) -> Response:
     try:
         await watchlist_handler.remove_item(conn, user.id, security_id)

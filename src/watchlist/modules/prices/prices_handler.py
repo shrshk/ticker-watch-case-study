@@ -9,7 +9,6 @@ the caching decision can be measured rather than asserted.
 """
 
 import dataclasses
-import datetime as dt
 
 import asyncpg
 import redis.exceptions
@@ -18,6 +17,7 @@ from watchlist.modules.prices import prices_controller
 from watchlist.shared import cache
 from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
+from watchlist.shared.timeutil import to_iso
 
 logger = get_logger(__name__)
 
@@ -114,7 +114,3 @@ async def read_snapshot(
 ) -> PriceSnapshot:
     """Convenience wrapper for the common single-read case."""
     return await SnapshotReader(conn).read(securities)
-
-
-def to_iso(value: dt.datetime) -> str:
-    return value.astimezone(dt.UTC).isoformat().replace("+00:00", "Z")

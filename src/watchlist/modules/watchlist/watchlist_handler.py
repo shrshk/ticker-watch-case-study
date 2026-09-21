@@ -5,8 +5,6 @@ load is a worse story than one, and it keeps the phase 3 subscribe-ordering
 rule simple: subscribe, then take one snapshot, then drain.
 """
 
-import datetime as dt
-
 import asyncpg
 
 from watchlist.modules.auth import auth_controller
@@ -15,6 +13,7 @@ from watchlist.modules.securities import securities_controller
 from watchlist.modules.watchlist import watchlist_controller
 from watchlist.modules.watchlist.watchlist_schema import Watchlist, WatchlistItem
 from watchlist.shared.logging import get_logger
+from watchlist.shared.timeutil import now_iso
 
 logger = get_logger(__name__)
 
@@ -52,7 +51,7 @@ class WatchlistView:
             read_path=snapshot.read_path,
             cache_hits=snapshot.cache_hits,
             cache_misses=snapshot.cache_misses,
-            as_of=_now_iso(),
+            as_of=now_iso(),
         )
 
     async def _resolve_watchlist(self) -> None:
@@ -96,7 +95,3 @@ async def remove_item(conn: asyncpg.Connection, user_id: int, security_id: int) 
     watchlist_id = await auth_controller.default_watchlist_id(conn, user_id)
     if not await watchlist_controller.remove(conn, watchlist_id, security_id):
         raise NotOnWatchlistError(security_id)
-
-
-def _now_iso() -> str:
-    return dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")

@@ -31,7 +31,9 @@ import datetime as dt
 import pathlib
 import time
 
+import asyncpg
 import httpx
+import redis.exceptions
 
 from watchlist.modules.prices import prices_controller
 from watchlist.modules.securities import securities_controller
@@ -41,10 +43,12 @@ from watchlist.price_service.sources.simulated import SimulatedSource
 from watchlist.shared import cache, db
 from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
+from watchlist.shared.timeutil import to_iso
 
 logger = get_logger(__name__)
 
 SEED_PRICES = pathlib.Path(__file__).resolve().parents[3] / "seed" / "prices.csv"
+HEARTBEAT = pathlib.Path("/tmp/heartbeat")
 
 
 class SourceMismatch(RuntimeError):
@@ -70,6 +74,7 @@ class PriceService:
             "updates_changed": 0,
             "cache_writes": 0,
             "cache_writes_rejected": 0,
+            "cache_errors": 0,
             "postgres_upserts": 0,
             "postgres_errors": 0,
             "upstream_calls": 0,
@@ -203,7 +208,7 @@ class PriceService:
             payload = {
                 "security_id": row["security_id"],
                 "price": float(row["price"]),
-                "effective_at": _iso(row["effective_at"]),
+                "effective_at": to_iso(row["effective_at"]),
                 "source": row["source"],
             }
             if await cache.set_price_if_newer(
@@ -231,6 +236,7 @@ class PriceService:
                 # because the next tick supersedes it 5 seconds later.
                 logger.exception("tick failed")
             elapsed = time.monotonic() - started
+            HEARTBEAT.touch()
             if elapsed > interval:
                 # The one number to watch first: past this point the system is
                 # no longer meeting the brief, whatever else the dashboards say.
@@ -296,23 +302,26 @@ class PriceService:
         return self._upstream_prices
 
     async def _write_cache(self, prices: dict[str, float]) -> None:
-        """Refresh every current price, not just the changed ones."""
-        ttl = self._settings.price_cache_ttl_seconds
+        """Refresh every current price, not just the changed ones. One round trip."""
+        entries = []
         for ticker, price in prices.items():
-            iso = _iso(self._effective_at[ticker])
+            iso = to_iso(self._effective_at[ticker])
             payload = {
                 "security_id": self._ticker_to_id[ticker],
                 "price": price,
                 "effective_at": iso,
                 "source": self._source.name,
             }
-            try:
-                if await cache.set_price_if_newer(ticker, payload, iso, ttl):
-                    self.stats["cache_writes"] += 1
-                else:
-                    self.stats["cache_writes_rejected"] += 1
-            except OSError:
-                logger.exception("cache write failed for %s", ticker)
+            entries.append((ticker, payload, iso))
+        try:
+            written, rejected = await cache.set_prices_if_newer(
+                entries, self._settings.price_cache_ttl_seconds
+            )
+            self.stats["cache_writes"] += written
+            self.stats["cache_writes_rejected"] += rejected
+        except (redis.exceptions.RedisError, OSError):
+            self.stats["cache_errors"] += 1
+            logger.exception("cache write failed for %d tickers", len(entries))
 
     async def _write_postgres(self, changed: dict[str, float]) -> None:
         """Only changed prices. Rewriting 99 unchanged rows every 5s is churn."""
@@ -326,9 +335,12 @@ class PriceService:
             async with db.pool().acquire() as conn:
                 await prices_controller.upsert_many(conn, rows)
             self.stats["postgres_upserts"] += len(rows)
-        except OSError:
+        except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError):
             # A Postgres stall must not stop the cache write or, later, the
             # publish. Clients keep seeing fresh prices; durability lags.
+            # asyncpg errors are not OSErrors; catching only OSError let the
+            # connection-exhaustion incident escape to the loop's catch-all
+            # uncounted.
             self.stats["postgres_errors"] += 1
             logger.exception("latest_prices upsert failed for %d rows", len(rows))
 
@@ -337,7 +349,3 @@ class PriceService:
             await self._source.aclose()
         await cache.close()
         await db.disconnect()
-
-
-def _iso(value: dt.datetime) -> str:
-    return value.astimezone(dt.UTC).isoformat().replace("+00:00", "Z")

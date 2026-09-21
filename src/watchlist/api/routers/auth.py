@@ -5,7 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from watchlist.api.deps import connection, current_user
 from watchlist.modules.auth import auth_handler
-from watchlist.modules.auth.auth_schema import LoginRequest, RegisterRequest, Session, User
+from watchlist.modules.auth.auth_schema import (
+    LoginRequest,
+    Principal,
+    RegisterRequest,
+    Session,
+    User,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -40,5 +46,12 @@ async def login(
 
 
 @router.get("/me", response_model=User)
-async def me(user: User = Depends(current_user)) -> User:
+async def me(
+    principal: Principal = Depends(current_user),
+    conn: asyncpg.Connection = Depends(connection),
+) -> User:
+    """The one place a token is checked against the database."""
+    user = await auth_handler.get_user(conn, principal.id)
+    if user is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "user no longer exists")
     return user

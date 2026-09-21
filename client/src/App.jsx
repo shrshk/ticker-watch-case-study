@@ -1,5 +1,5 @@
 import './App.css';
-import { useCallback, useContext, useMemo, useState } from 'react';
+import { useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { LoginForm } from './LoginForm';
 import { SearchBar } from './SearchBar';
 import { StatusBar } from './StatusBar';
@@ -68,6 +68,12 @@ export default function App() {
   const logout = useCallback(() => {
     clearSession();
     setSession(null);
+  }, []);
+
+  useEffect(() => {
+    const onUnauthorized = () => setSession(null);
+    window.addEventListener('watchlist:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('watchlist:unauthorized', onUnauthorized);
   }, []);
 
   const value = useMemo(

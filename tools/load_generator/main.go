@@ -38,6 +38,8 @@ type config struct {
 	interval     time.Duration
 	transport    string
 	rampUp       time.Duration
+	userIDMin    int
+	userIDMax    int
 }
 
 type watchlistResponse struct {
@@ -93,7 +95,17 @@ func parseFlags() config {
 	flag.DurationVar(&cfg.interval, "interval", 5*time.Second, "client poll interval")
 	flag.DurationVar(&cfg.rampUp, "ramp-up", 5*time.Second, "spread client starts over this long")
 	flag.StringVar(&cfg.transport, "transport", "poll", "poll or push")
+	flag.IntVar(&cfg.userIDMin, "user-id-min", 0,
+		"lowest seeded user id to impersonate (required; the runner reads it from the DB)")
+	flag.IntVar(&cfg.userIDMax, "user-id-max", 0,
+		"highest seeded user id to impersonate (required)")
 	flag.Parse()
+	if cfg.userIDMin <= 0 || cfg.userIDMax < cfg.userIDMin {
+		log.Fatal("-user-id-min and -user-id-max are required and must describe a real range.\n" +
+			"Ids are not contiguous from 3: a reseed deletes and re-inserts users, so any\n" +
+			"assumed range silently turns into a wall of 401s. tools/bench/run_load.sh reads\n" +
+			"the live range from Postgres and passes it.")
+	}
 	return cfg
 }
 
@@ -162,6 +174,37 @@ func preflight(cfg config) error {
 			checkResp.StatusCode)
 	}
 	fmt.Println("preflight: minted tokens accepted")
+
+	// Prove the id range is real before generating load against it. Sampling
+	// only user 1 would pass while every seeded id 401s - which is exactly what
+	// happened after a reseed moved the load users from ids 3..1,000,002 to
+	// 1,000,004..2,000,003.
+	const samples = 25
+	rng := rand.New(rand.NewSource(1))
+	ok := 0
+	for i := 0; i < samples; i++ {
+		id := cfg.userIDMin + rng.Intn(cfg.userIDMax-cfg.userIDMin+1)
+		tok, err := mintToken(cfg.jwtSecret, id, fmt.Sprintf("user-%d", id), time.Hour)
+		if err != nil {
+			return fmt.Errorf("mint token for %d: %w", id, err)
+		}
+		r, _ := http.NewRequest(http.MethodGet, cfg.apiBase+"/watchlist", nil)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		resp, err := client.Do(r)
+		if err != nil {
+			return fmt.Errorf("GET /watchlist as %d: %w", id, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusOK {
+			ok++
+		}
+	}
+	if ok < samples*9/10 {
+		return fmt.Errorf("only %d/%d sampled user ids in [%d, %d] are valid; the range is wrong",
+			ok, samples, cfg.userIDMin, cfg.userIDMax)
+	}
+	fmt.Printf("preflight: %d/%d sampled user ids in [%d, %d] accepted\n",
+		ok, samples, cfg.userIDMin, cfg.userIDMax)
 	return nil
 }
 
@@ -222,9 +265,13 @@ func pollClient(
 ) {
 	rng := rand.New(rand.NewSource(int64(n)*7919 + 13))
 
-	// Demo users occupy the first ids; seeded load users follow.
-	userID := 3 + rng.Intn(cfg.logicalUsers)
-	token, err := mintToken(cfg.jwtSecret, userID, fmt.Sprintf("load_user_%d", userID), 24*time.Hour)
+	// Draw from the real seeded range, never from an assumed one.
+	span := cfg.userIDMax - cfg.userIDMin + 1
+	if cfg.logicalUsers < span {
+		span = cfg.logicalUsers
+	}
+	userID := cfg.userIDMin + rng.Intn(span)
+	token, err := mintToken(cfg.jwtSecret, userID, fmt.Sprintf("user-%d", userID), 24*time.Hour)
 	if err != nil {
 		ctr.errors.Add(1)
 		return

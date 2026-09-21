@@ -61,13 +61,19 @@ export function useWatchlist(token) {
     // enforce - one of the structural costs of polling.
     const startDelay = Math.random() * INTERVAL_MS;
 
+    // First poll now, so the screen is never empty; then a fixed-phase timer
+    // from a jittered offset. Scheduling from the previous *start* rather than
+    // the previous *completion* keeps the interval at INTERVAL_MS instead of
+    // INTERVAL_MS plus request latency, which is how the Go load generator
+    // behaves - the two must poll the same way for the comparison to hold.
+    refresh();
+    let next = Date.now() + startDelay;
     const tick = async () => {
       if (cancelled) return;
+      next += INTERVAL_MS;
+      timer = setTimeout(tick, Math.max(0, next - Date.now()));
       await refresh();
-      if (!cancelled) timer = setTimeout(tick, INTERVAL_MS);
     };
-
-    refresh();
     timer = setTimeout(tick, startDelay);
 
     return () => {

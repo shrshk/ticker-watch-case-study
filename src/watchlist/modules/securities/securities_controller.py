@@ -36,13 +36,12 @@ async def get(conn: asyncpg.Connection, security_id: int) -> asyncpg.Record | No
     )
 
 
-async def upsert_many(conn: asyncpg.Connection, rows: list[tuple[str, str]]) -> int:
-    """Upsert (ticker, name) pairs from the vendor catalog. Returns rows touched."""
+async def upsert_many(conn: asyncpg.Connection, rows: list[tuple[str, str]]) -> None:
+    """Upsert (ticker, name) pairs from the vendor catalog."""
     if not rows:
-        return 0
-    result = await conn.executemany(
+        return
+    await conn.executemany(
         "INSERT INTO securities (ticker, name) VALUES ($1, $2) "
         "ON CONFLICT (ticker) DO UPDATE SET name = EXCLUDED.name",
         rows,
     )
-    return len(rows) if result is None else len(rows)

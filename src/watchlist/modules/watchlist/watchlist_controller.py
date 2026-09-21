@@ -32,9 +32,3 @@ async def remove(conn: asyncpg.Connection, watchlist_id: int, security_id: int) 
         security_id,
     )
     return result.endswith(" 1")
-
-
-async def watched_security_ids(conn: asyncpg.Connection) -> list[int]:
-    """The union of every watchlisted security. A stock nobody watches costs nothing."""
-    rows = await conn.fetch("SELECT DISTINCT security_id FROM watchlist_items")
-    return [r["security_id"] for r in rows]
