@@ -314,7 +314,8 @@ Status: **deferred to after phase 3**, then done before `make submit`.
   ten minutes if wanted.
 - **Centrifugo's hot-channel knee is between 25k and 50k on this hardware** (§8.10):
   clean at 25k, superlinear by 50k, unmeasurable at 100k because the VM
-  saturated. Attributing the 100k result needs a second host for the
+  saturated - and reproduced end to end in a second run (50k: 36.99 vs
+  37.33ms). Attributing the 100k result needs a second host for the
   generators. Sharding stays a discussion point, not code.
 - **Generator-side disconnect codes are untrusted** (§8.5); harnesses read
   Centrifugo's counters. A small centrifuge-go fix would restore the

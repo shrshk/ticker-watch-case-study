@@ -345,7 +345,8 @@ The other phase 3 scenarios, each in [`docs/measurements.md`](docs/measurements.
   readers; everyone else's p50 stayed at 39ms.
 - **Celebrity ticker**: one node fans out cleanly to ~25,000 subscribers on a
   single channel (6ms per broadcast); by 50,000 the cost is superlinear (37ms)
-  and the hot channel's tail separates from the rest. 100,000 exceeded what
+  and the hot channel's tail separates from the rest - reproduced in a second
+  full run within 1% at 50k. 100,000 exceeded what
   this laptop can measure honestly. The levers, in order: more Centrifugo
   nodes (the engine distributes fanout by node), then sharding the channel
   within a node - and not Redis sharding, which is the wrong layer. Not built;

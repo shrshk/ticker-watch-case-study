@@ -884,6 +884,31 @@ removed the expensive half of the celebrity problem (publish amplification) by
 construction; the measurement located where the remaining half (fanout) starts
 to cost on one node, and named the levers in the order they should be pulled.
 
+**Reproduced.** The whole ladder was run a second time, end to end, before
+any of this was treated as a result. Centrifugo's broadcast mean, run 1 vs
+run 2:
+
+| NVDA subscribers | run 1 | run 2 | delta | NVDA upd p50 / p99, run 1 → run 2 |
+|---|---|---|---|---|
+| 5,000 | 0.73ms | 0.75ms | +3% | 91 / 168 → 93 / 183ms |
+| 10,000 | 2.20ms | 2.50ms | +14% | 177 / 279 → 194 / 303ms |
+| 20,000 | 6.43ms | 6.86ms | +7% | 523 / 770 → 579 / 843ms |
+| 25,000 | 6.22ms | 6.22ms | 0% | 376 / 694 → 576 / 812ms* |
+| **50,000** | **36.99ms** | **37.33ms** | **+1%** | 893 / 1,730 → ~770 / 1,420ms |
+| 100,000 (attempted) | 210.9ms | 305.9ms | - | environment-saturated both times |
+
+\* Run 1's 25k row came from the multi-generator harness (90s, 30s ramp); run
+2's from the single-generator one (45s, 10s ramp). The broker-side number is
+identical; the client-side one is not comparable across a different ramp.
+
+The knee holds: **~6ms per broadcast at 25k, ~37ms at 50k, in both runs.**
+The 100k attempt was worse the second time (306ms, Centrifugo at 228%
+steady-state with four generators at 143% each - the VM saturated even at
+steady state), which is consistent with it measuring the environment rather
+than the broker. Run 2's 50k had more client-side connect errors than run 1
+(2,238 vs 166) with the same broadcast cost, which points at the generators'
+ramp rather than at Centrifugo.
+
 **Harness note.** The first 50k attempt was silently a 25k run: two concurrent
 `docker compose run`s raced on the API's `depends_on` and the second died with
 a container-name conflict. `--no-deps` fixed it; the row above is the re-run.
