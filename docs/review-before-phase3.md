@@ -253,6 +253,44 @@ evidently meant. Status: **deferred to after phase 3**, then done before
 
 ---
 
+**Consolidate the documentation, and expose the metrics behind it.**
+
+What exists is accurate but accreted: the README carries the narrative, the
+measurements live in `docs/measurements.md` with a corrections banner and a
+§2b that supersedes §2, this review holds the findings, and the plan has dated
+strike-throughs. A reviewer should not need to read four files to know what
+was built, what was measured and what was assumed. Before `make submit`:
+
+- **README as the single arc** (plan §27): what this is → requirements →
+  version 1 polling → where it broke, measured → version 2 push → what push
+  cost → separation of concerns → channel design → the snapshot path → the
+  broker experiment → what was deliberately not built → environment caveats →
+  measured results. Rewritten as one pass, not patched.
+- **An assumptions register**, explicit and numbered: 99 tickers not 10k; one
+  vendor call covers the universe; `effective_at` is observation time because
+  the vendor gives none; 30% change ratio (observed 25–45% live); Zipf s=1.1
+  with an explicit popularity ranking; Docker Desktop's VM and port forwarding
+  as measurement environment; thermal drift across a long session; the
+  stateless-token trade closed by 15-minute refresh. Each with where it came
+  from and what it would change if wrong.
+- **An architecture section with a diagram** — components, the two paths
+  (realtime and snapshot), the three delivery guarantees, and which store is
+  authoritative for what.
+- **A `/metrics` endpoint on both services** (plan §20, phase 4) so every
+  number the documents quote can be re-derived live rather than trusted:
+  `PriceService.stats` (ticks, upstream calls, changed, cache writes/rejects,
+  postgres upserts/errors, `tick_duration_seconds`, `source_reconciliation`)
+  and API request counts, latency histogram, cache hit/miss. Prometheus text
+  format; Grafana is optional on top.
+- **Measured results, final**: one table per question in plan §22, taken in a
+  single cold batch after phase 3, replacing the accreted sections rather than
+  appending to them. The rule stands: no number appears that was not measured
+  on this machine.
+
+Status: **deferred to after phase 3**, then done before `make submit`.
+
+---
+
 ## What phase 3 inherits
 
 - A polling baseline measured without a write on the read path.
