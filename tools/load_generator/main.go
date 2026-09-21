@@ -47,6 +47,7 @@ type config struct {
 	stormFraction float64       // share of clients that take part in the storm
 	slowFraction  float64       // share of clients that read slowly (Scenario E)
 	slowDelay     time.Duration // how long a slow client blocks per publication
+	measureAfter  time.Duration // discard update-latency samples before this offset (ramp)
 }
 
 type watchlistResponse struct {
@@ -111,6 +112,8 @@ func parseFlags() config {
 	flag.Float64Var(&cfg.stormFraction, "storm-fraction", 0.5, "push: share of clients in the storm")
 	flag.Float64Var(&cfg.slowFraction, "slow-fraction", 0, "push: share of clients that read slowly")
 	flag.DurationVar(&cfg.slowDelay, "slow-delay", 2*time.Second, "push: block per publication for slow clients")
+	flag.DurationVar(&cfg.measureAfter, "measure-after", 0,
+		"discard update-latency samples before this offset, so a connect ramp does not inflate them")
 	flag.Parse()
 	if cfg.userIDMin <= 0 || cfg.userIDMax < cfg.userIDMin {
 		log.Fatal("-user-id-min and -user-id-max are required and must describe a real range.\n" +

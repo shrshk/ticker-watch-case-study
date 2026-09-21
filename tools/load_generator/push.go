@@ -59,6 +59,7 @@ func runPush(cfg config) {
 	httpClient := &http.Client{Transport: transport, Timeout: 30 * time.Second}
 
 	started := time.Now()
+	measureFrom := started.Add(cfg.measureAfter)
 	go pushProgress(ctx, ctr, pctr, started)
 
 	var wg sync.WaitGroup
@@ -67,7 +68,7 @@ func runPush(cfg config) {
 		go func(n int) {
 			defer wg.Done()
 			pushClient(ctx, cfg, wsURL, httpClient, n, ctr, pctr,
-				requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency, &stormStarted)
+				requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency, &stormStarted, measureFrom)
 		}(i)
 	}
 	wg.Wait()
@@ -85,6 +86,7 @@ func pushClient(
 	pctr *pushCounters,
 	requestLatency, updateLatency, stormSnapshotLatency, celebrityLatency *samples,
 	stormStarted *atomic.Bool,
+	measureFrom time.Time,
 ) {
 	rng := rand.New(rand.NewSource(int64(n)*7919 + 13))
 	inStorm := cfg.stormAt > 0 && rng.Float64() < cfg.stormFraction
@@ -208,6 +210,9 @@ func pushClient(
 			lastSeen[ev.Ticker] = ev.EffectiveAt
 			mu.Unlock()
 
+			if observed.Before(measureFrom) {
+				return // ramp: connections still arriving, snapshots still bursting
+			}
 			if eff, err := time.Parse(time.RFC3339Nano, ev.EffectiveAt); err == nil {
 				ms := float64(observed.Sub(eff).Nanoseconds()) / 1e6
 				updateLatency.addMillis(ms)

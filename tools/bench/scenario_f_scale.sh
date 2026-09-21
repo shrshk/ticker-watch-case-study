@@ -46,13 +46,21 @@ stats="$(mktemp)"; sentinel="$(mktemp)"; outdir="$(mktemp -d)"
     sleep 3
   done ) &
 
+# Histogram snapshots: cumulative at ramp-end and at run-end. The steady-state
+# delta is the number that says what the broker costs once everyone is
+# connected; the cumulative figure is dominated by the ramp whenever the
+# generators saturate the machine while connecting.
+hist_snap() { node_metrics "$1" | grep -E "^centrifugo_node_broadcast_duration_seconds_(bucket|count|sum)"; }
+( sleep "$(( ${RAMP%s} + 8 ))"; for svc in "${node_services[@]}"; do hist_snap "${svc}" > "${outdir}/ramp_${svc}.hist"; done ) &
+MEASURE_AFTER="$(( ${RAMP%s} + 8 ))s"
+
 pids=()
 for i in $(seq 1 "${N}"); do
   # --no-deps: N concurrent `compose run`s otherwise all try to ensure the
   # api's depends_on and race on recreating it - the second one died with a
   # container-name conflict, and a "50k" run silently became a 25k run.
   ( ${COMPOSE_PUSH} run --rm --no-deps -e CENTRIFUGO_URL="$(node_url "${i}")" load-generator -transport push -clients "${PER}" -duration "${DURATION}" \
-      -ramp-up "${RAMP}" -celebrity "${TICKER}" -logical-users "${LOGICAL_USERS}" ${RANGE} \
+      -ramp-up "${RAMP}" -measure-after "${MEASURE_AFTER}" -celebrity "${TICKER}" -logical-users "${LOGICAL_USERS}" ${RANGE} \
       > "${outdir}/gen${i}.out" 2> "${outdir}/gen${i}.err" || true ) &
   pids+=($!)
 done
@@ -88,7 +96,10 @@ def q(p):
     return float("inf")
 print(f"count={c:.0f} mean={1000*s/c if c else 0:.2f}ms p95<={1000*q(.95):.0f}ms p99<={1000*q(.99):.0f}ms")
 ' <<<"${mtx}")"
-  printf '  %-13s clients(now)=%-7s subs(now)=%-8s broadcast: %s\n' "${svc}" "${clients}" "${subs}" "${hist}"
+  steady="$(python3 tools/bench/hist_delta.py "${outdir}/ramp_${svc}.hist" <<<"${mtx}" 2>/dev/null || echo 'n/a')"
+  printf '  %-13s clients(now)=%-7s subs(now)=%-8s\n' "${svc}" "${clients}" "${subs}"
+  printf '  %-13s   whole run:    %s\n' "" "${hist}"
+  printf '  %-13s   steady-state: %s   <- after ramp+8s; the number that matters\n' "" "${steady}"
 done
 python3 - "${stats}" "${CLIENTS}" <<'PY'
 import sys, collections
