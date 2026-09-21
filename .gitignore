@@ -228,3 +228,6 @@ node_modules/
 
 # Local data
 solution.zip
+
+# Benchmark artefacts
+.run/

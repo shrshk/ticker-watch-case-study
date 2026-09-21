@@ -1,6 +1,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help build up down restart logs ps sh migrate createusers createsuperuser \
         capture-prices reset-prices psql redis-cli open-app open-api test lint format \
+        seed-small seed-medium seed-million seed-clear db-bench load bench-transport \
         clean submit bootstrap
 
 # Anything below can be overridden inline, e.g. `make up PRICE_SOURCE=simulated`.
@@ -58,6 +59,35 @@ capture-prices: ## One-off: refresh seed/securities.csv and seed/prices.csv from
 
 reset-prices: ## Clear latest_prices and price:* so PRICE_SOURCE can be switched
 	$(COMPOSE) run --rm -T api python tools/reset_prices.py
+
+# -- load seeds --------------------------------------------------------------
+
+seed-small: ## Seed 10k users / ~100k watchlist rows
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py small
+
+seed-medium: ## Seed 100k users / ~1M watchlist rows
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py medium
+
+seed-million: ## Seed 1M users / ~10M watchlist rows
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py million
+
+seed-clear: ## Remove every seeded load user (leaves demo users and securities)
+	$(COMPOSE) run --rm -T api python tools/seed/seed_users.py small --truncate --securities 0 || true
+
+db-bench: ## Measure search, membership and snapshot latency at the current size
+	$(COMPOSE) run --rm -T api python tools/bench/db_bench.py
+
+# -- load -------------------------------------------------------------------
+# Never run as part of 'make up'. Every run checks the stack is healthy first
+# and refuses otherwise: numbers from a half-started stack look real and are not.
+
+load: ## Run the load generator on the host, e.g. make load CLIENTS=5000 DURATION=120s
+	tools/bench/run_load.sh $(or $(CLIENTS),1000) $(or $(DURATION),60s) \
+	    -logical-users $(or $(LOGICAL_USERS),1000000)
+
+load-container: ## Same load, generated from inside a container (see README, question 9)
+	GENERATOR=container tools/bench/run_load.sh $(or $(CLIENTS),1000) $(or $(DURATION),60s) \
+	    -logical-users $(or $(LOGICAL_USERS),1000000)
 
 # -- shells and browsers -----------------------------------------------------
 

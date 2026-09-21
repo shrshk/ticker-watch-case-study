@@ -150,11 +150,54 @@ The client jitters its first poll. A million clients on a 5s timer otherwise
 drift into aligned spikes, and that is client-side behaviour a server cannot
 enforce — one of the structural costs of polling, not an implementation detail.
 
-**What push will have to justify** (phase 3): polling costs a fixed amount per
-user per interval whether or not anything changed, and every request pays token
-validation, a membership lookup and an `MGET`. Push does one broadcast per
-changed ticker per tick. The plan is to run identical load under both and put
-the table here. Until that run happens, this README will not claim a number.
+### Where polling breaks — measured
+
+Full tables and method in [`docs/measurements.md`](docs/measurements.md).
+
+**Polling breaks between 25,000 and 27,500 concurrent clients** on this laptop
+— about 5,000 requests per second, with the API on 4 uvicorn workers.
+
+| clients | req/s | p50 | p99 | errors | API CPU |
+|---|---|---|---|---|---|
+| 15,000 | 2,871 | 2.7ms | 14.5ms | 0 | 317% |
+| **25,000** | **4,782** | **7.8ms** | **72.7ms** | **0** | **383% of 400%** |
+| 27,500 | 3,762 | 855ms | 19,281ms | 263 | 417% |
+| 30,000 | 3,758 | 4,045ms | 21,605ms | 555 | 422% |
+
+It is congestive collapse, not a plateau: past the knee throughput *falls*,
+p50 rises 500-fold, and API memory grows from 228 MB to over 1.1 GB as requests
+queue. The API exhausts its worker CPU first; Postgres is at 194% and Redis at
+13% when it goes.
+
+**Update latency is fixed by the interval, not by load.** Measured at the
+client, from a price's `effective_at` to the moment a client sees it:
+
+| clients | p50 | p99 |
+|---|---|---|
+| 1,000 | 2,548ms | 4,970ms |
+| 25,000 | 2,573ms | 4,961ms |
+
+Half an interval at p50, a full interval at p99, at every load level. That is
+arithmetic, and no amount of server capacity improves it. This is the number
+push has to beat.
+
+**And the cost is paid whether or not anything changed.** Measured at 16,900
+bytes per client per minute, constant across the whole range. At
+`SIM_CHANGE_RATIO=0.30`, roughly 70% of every response is data the client
+already had. Extrapolating the measured per-client cost:
+
+| concurrent clients | required req/s | egress | stacks at 5,000 req/s |
+|---|---|---|---|
+| 25,000 | 5,000 | 7 MB/s | 1 |
+| 1,000,000 | 200,000 | 282 MB/s | **40** |
+
+Forty API stacks to deliver mostly-unchanged data every five seconds is the
+argument for push, as a number rather than an opinion.
+
+**What push will cost, stated honestly:** connection state, reconnect handling,
+the snapshot/subscribe ordering problem, slow-consumer management, and one more
+component to run. Phase 3 runs identical load under both and publishes the
+comparison.
 
 ---
 
@@ -375,6 +418,40 @@ Everything is in `.env` (see `.env.example`). The ones that change behaviour:
 
 ---
 
+## Load testing and seeding
+
+```bash
+make seed-small | seed-medium | seed-million   # 10k / 100k / 1M users
+make db-bench                                  # server-side read latency
+make load           CLIENTS=25000 DURATION=60s # generator on the host
+make load-container CLIENTS=25000 DURATION=60s # generator inside the network
+```
+
+The load generator is a separate Go program under `tools/load_generator/`. It
+is not part of the product, shares no code with the services, builds separately
+and runs only under the `load` Compose profile. It lives in this repo because
+the measurements are the deliverable: a reviewer checking these numbers should
+not have to clone a second repo, and a separate repo drifts from the API
+contract the first time an endpoint changes.
+
+It refuses to run against a stack that is not healthy, and every result file
+records the API command, worker count and which generator produced it — a
+benchmark that does not state its server configuration is a number without a
+meaning.
+
+Logical users and real connections are independent parameters. Logical users
+exercise database size, watchlist distribution and popularity skew; real
+connections exercise sockets, memory and fanout.
+
+**Two environment caveats that change the numbers**, both in
+[`docs/measurements.md`](docs/measurements.md):
+
+- The host has only 16,384 ephemeral ports, which caps a host-run generator at
+  roughly 16,000 clients — below where the application actually breaks. Use
+  `make load-container` for anything larger.
+- Docker Desktop's host port forwarding adds about 85ms at p99. Same throughput,
+  much worse tail. The container-generated numbers are the honest ones.
+
 ## Tests
 
 ```bash
@@ -427,10 +504,10 @@ Phase 1 — the working product on polling — is complete and satisfies the bri
 The remaining phases exist to answer whether the design holds at the stated
 scale.
 
-**Phase 2 — find the limit.** Seed 1M users and 10M watchlist rows; measure
-search, membership lookup and snapshot latency; build a load generator and raise
-the client count until p99 degrades or the API workers saturate. **Record where
-polling breaks.** That number is the justification for phase 3.
+**Phase 2 — find the limit. Done.** 1M users and 9.7M watchlist rows seeded;
+database, load generator and the polling ceiling all measured. Results in
+[`docs/measurements.md`](docs/measurements.md); the headlines are in the
+transport section above.
 
 **Phase 3 — push, and prove it was worth it.** Centrifugo on a `push` profile
 with per-ticker `ticker:<TICKER>` channels, subscribe-buffer-snapshot-drain

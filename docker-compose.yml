@@ -17,6 +17,7 @@ x-python-env: &python-env
   SIM_CHANGE_RATIO: ${SIM_CHANGE_RATIO:-0.30}
   SIM_SEED: ${SIM_SEED:-1}
   TRANSPORT: ${TRANSPORT:-poll}
+  UVICORN_ARGS: ${UVICORN_ARGS:-}
 
 services:
   db:
@@ -54,9 +55,20 @@ services:
     build: .
     hostname: api
     environment: *python-env
-    command: uvicorn watchlist.api.main:app --host 0.0.0.0 --port 8000 --reload
+    # --reload for development; benchmarks override UVICORN_ARGS with
+    # "--workers N". A single-process dev server saturates one core almost
+    # immediately, which would measure Python's GIL rather than the design.
+    command:
+      - sh
+      - -c
+      - exec uvicorn watchlist.api.main:app --host 0.0.0.0 --port 8000 ${UVICORN_ARGS:---reload}
     volumes:
+      # Development convenience: edits take effect without a rebuild. The image
+      # already contains a full copy of all three, so dropping these mounts for
+      # a self-contained runtime is a three-line change.
       - ./src:/app/src
+      - ./tools:/app/tools
+      - ./migrations:/app/migrations
     ports:
       - "8000:8000"
     depends_on:
@@ -100,6 +112,32 @@ services:
       - "3000:3000"
     depends_on:
       - api
+
+  # Not part of the product. Runs only under the `load` profile, with
+  # explicit arguments, and never as part of `make up`.
+  #
+  # Running the generator in a container rather than on the host is the
+  # discriminator for "is this ceiling the application or the environment":
+  # it has its own ephemeral port range and file descriptor limits, and it
+  # reaches the API over the Compose network instead of through Docker
+  # Desktop's host port forwarding.
+  load-generator:
+    image: watchlist-loadgen:local
+    profiles: ["load"]
+    build:
+      context: ./tools/load_generator
+      dockerfile: Dockerfile
+    environment:
+      API_BASE: http://api:8000
+      JWT_SECRET: ${JWT_SECRET:-dev-only-not-a-secret}
+    ulimits:
+      nofile: { soft: 200000, hard: 200000 }
+    sysctls:
+      # 20k outbound connections to one destination exhausts the default
+      # ephemeral range before anything in the application breaks.
+      net.ipv4.ip_local_port_range: "10000 65535"
+    depends_on:
+      api: { condition: service_healthy }
 
 volumes:
   postgres_data:
