@@ -140,6 +140,13 @@ not the one the results claimed.
 
 ---
 
+- **A new dependency crash-looped a bind-mounted service** (phase 4).
+  `prometheus-client` was added to `pyproject.toml`; the running containers
+  mount `./src` but their image's virtualenv predates the dependency, so the
+  price service died on `ModuleNotFoundError` and the API went unhealthy - and
+  the final Scenario B batch failed at its second row. `make restart` now
+  passes `--build`. Ninth class in this log; same shape as the first.
+
 ## The plan document — sections overtaken by findings
 
 Corrected in place in `plans/ticker-watch-plan.md`, marked with the date:

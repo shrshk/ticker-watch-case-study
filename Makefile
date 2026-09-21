@@ -48,7 +48,10 @@ restart: ## Recreate services so .env AND code changes take effect
 	# because the client's /app/node_modules is an anonymous volume that
 	# otherwise outlives the image it came from - a new dependency in the image
 	# stays invisible to Vite until the volume is renewed.
-	$(COMPOSE) up -d --force-recreate --renew-anon-volumes
+	# --build because a new dependency in pyproject/package.json is invisible
+	# to a bind-mounted container until its image is rebuilt: the metrics
+	# change crash-looped the price service on ModuleNotFoundError.
+	$(COMPOSE) up -d --build --force-recreate --renew-anon-volumes
 
 logs: ## Tail logs from every service
 	$(COMPOSE) logs -f
