@@ -21,12 +21,15 @@ was deliberately not built, and where the measurements stop, is in
 
 ```bash
 cp .env.example .env        # paste ALBERT_API_KEY from the case study email
-make bootstrap              # build, start, migrate, create demo users
+make up                     # builds the images, starts every service
 make open-app               # http://localhost:3000  ->  user1 / password
 ```
 
-A fresh volume is seeded from `db/demo.sql` on first start, so the watchlist
-is populated before you click anything. `make help` lists every target.
+`make up` is enough on a fresh checkout: Compose builds the missing images,
+Postgres loads `db/demo.sql` into its new volume (schema, two demo users, a
+populated watchlist), and the price service waits for that schema before its
+first tick. `make bootstrap` is the same outcome in the background, with an
+explicit `migrate` and `createusers`. `make help` lists every target.
 
 | | |
 |---|---|
@@ -478,7 +481,7 @@ behaviour:
 
 ```bash
 make up-detached && make migrate    # the integration tests need the stack
-make test                           # 79 tests, separate watchlist_test database
+make test                           # 82 tests, separate watchlist_test database
 make lint
 ```
 
