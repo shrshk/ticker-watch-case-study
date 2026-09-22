@@ -3,11 +3,12 @@
 # version stays honestly standalone rather than push-minus-a-flag.
 
 x-python-env: &python-env
-  # Optional: only PRICE_SOURCE=api needs it, and the source adapter fails
-  # loudly if it is missing then. Requiring it here would stop a reviewer
+  # Optional: only PRICE_SOURCE=api needs them, and the source adapter fails
+  # loudly if they are missing then. Requiring them here would stop a reviewer
   # without a key from running the stack in simulated mode at all.
-  ALBERT_API_KEY: ${ALBERT_API_KEY:-}
-  ALBERT_API_BASE: ${ALBERT_API_BASE:-https://app.albert.com/casestudy}
+  VENDOR_API_KEY: ${VENDOR_API_KEY:-}
+  VENDOR_API_BASE: ${VENDOR_API_BASE:-}
+  VENDOR_API_KEY_HEADER: ${VENDOR_API_KEY_HEADER:-X-API-Key}
   POSTGRES_DSN: postgresql://postgres:postgres@db:5432/postgres
   REDIS_URL: redis://redis:6379/0
   JWT_SECRET: ${JWT_SECRET:-dev-only-not-a-secret}

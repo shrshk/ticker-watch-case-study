@@ -26,13 +26,13 @@ SEED_DIR = pathlib.Path(__file__).resolve().parents[2] / "seed"
 
 async def main() -> None:
     settings = get_settings()
-    if not settings.albert_api_key:
-        raise SystemExit("ALBERT_API_KEY is not set")
+    if not settings.vendor_api_key or not settings.vendor_api_base:
+        raise SystemExit("VENDOR_API_KEY and VENDOR_API_BASE are not set")
 
     SEED_DIR.mkdir(exist_ok=True)
     async with httpx.AsyncClient(
-        base_url=settings.albert_api_base,
-        headers={"Albert-Case-Study-API-Key": settings.albert_api_key},
+        base_url=settings.vendor_api_base,
+        headers={settings.vendor_api_key_header: settings.vendor_api_key},
         timeout=30.0,
     ) as client:
         catalog = (await client.get("/stock/tickers/")).raise_for_status().json()

@@ -28,8 +28,9 @@ values = dict(
     if "=" in line and not line.startswith("#")
 )
 
-if not values.get("ALBERT_API_KEY", "").strip() or values["ALBERT_API_KEY"] == "replace-me":
-    sys.exit("ALBERT_API_KEY is not set in .env; the submission runs PRICE_SOURCE=api.")
+for key in ("VENDOR_API_KEY", "VENDOR_API_BASE", "VENDOR_API_KEY_HEADER"):
+    if not values.get(key, "").strip() or values[key] == "replace-me":
+        sys.exit(f"{key} is not set in .env; the submission runs PRICE_SOURCE=api.")
 
 drift = {
     k: (values.get(k, ""), want)

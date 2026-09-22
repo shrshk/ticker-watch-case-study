@@ -97,7 +97,7 @@ export default function App() {
     <UserContext.Provider value={value}>
       <div className="app">
         <header>
-          <h1>Albert stock watch</h1>
+          <h1>Ticker watch</h1>
           <User />
         </header>
         {session ? <Main /> : <LoginForm />}

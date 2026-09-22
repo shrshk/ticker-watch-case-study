@@ -231,3 +231,4 @@ solution.zip
 
 # Benchmark artefacts
 .run/
+tools/load_generator/loadgen

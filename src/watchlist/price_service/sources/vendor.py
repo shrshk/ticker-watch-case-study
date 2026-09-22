@@ -1,4 +1,4 @@
-"""The Albert case study API.
+"""The vendor's price API.
 
 Treated as a third-party integration with per-call pricing, so the call count
 is a design constraint rather than an afterthought:
@@ -21,16 +21,18 @@ from watchlist.shared.settings import get_settings
 logger = get_logger(__name__)
 
 
-class AlbertSource(PriceSource):
+class VendorSource(PriceSource):
     name = "api"
 
     def __init__(self) -> None:
         settings = get_settings()
-        if not settings.albert_api_key:
-            raise RuntimeError("ALBERT_API_KEY is not set; cannot use PRICE_SOURCE=api")
+        if not settings.vendor_api_key or not settings.vendor_api_base:
+            raise RuntimeError(
+                "VENDOR_API_KEY and VENDOR_API_BASE must be set; cannot use PRICE_SOURCE=api"
+            )
         self._client = httpx.AsyncClient(
-            base_url=settings.albert_api_base,
-            headers={"Albert-Case-Study-API-Key": settings.albert_api_key},
+            base_url=settings.vendor_api_base,
+            headers={settings.vendor_api_key_header: settings.vendor_api_key},
             timeout=10.0,
         )
 

@@ -1,6 +1,6 @@
 # Stock Watchlist
 
-A stock watchlist service and client for the Albert product engineering case
+A stock watchlist service and client, built as a product engineering case
 study. Users log in, search stocks by ticker or company name, keep a watchlist,
 and see prices update every 5 seconds — pushed over WebSockets, with a polling
 implementation kept alongside as the baseline it was measured against.
@@ -10,7 +10,6 @@ simplest thing that worked, where it broke, what replaced it, and what that
 cost. Every number in it was measured on one laptop and says so where the
 laptop, rather than the design, set the limit.
 
-The original brief is preserved at [`archive/ORIGINAL_README.md`](archive/ORIGINAL_README.md).
 Every measurement is in [`docs/measurements.md`](docs/measurements.md); what
 was deliberately not built, and where the measurements stop, is in
 [`docs/limitations-and-next-steps.md`](docs/limitations-and-next-steps.md).
@@ -20,7 +19,7 @@ was deliberately not built, and where the measurements stop, is in
 ## Quick start
 
 ```bash
-cp .env.example .env        # paste ALBERT_API_KEY from the case study email
+cp .env.example .env        # fill in the VENDOR_API_* values from the case study email
 make up                     # builds the images, starts every service
 make open-app               # http://localhost:3000  ->  user1 / password
 ```
@@ -79,7 +78,7 @@ packages `solution.zip`. See *Before you submit* at the end.
 ## Architecture
 
 ```
-                 Albert API  (or the simulator)
+                 Vendor API  (or the simulator)
                        │  one call per 5s tick, all 99 tickers
                        ▼
                 price-service                 the only writer of prices,
@@ -461,7 +460,9 @@ behaviour:
 
 | variable | default | |
 |---|---|---|
-| `ALBERT_API_KEY` | — | required for `PRICE_SOURCE=api` |
+| `VENDOR_API_KEY` | — | required for `PRICE_SOURCE=api` |
+| `VENDOR_API_BASE` | — | the vendor's base URL; required for `PRICE_SOURCE=api` |
+| `VENDOR_API_KEY_HEADER` | `X-API-Key` | header the key is sent in |
 | `PRICE_SOURCE` | `api` | `simulated` for out-of-hours demos and every benchmark |
 | `TRANSPORT` | `push` | `poll` is the comparison baseline |
 | `BROKER` | `redis` | `nats` swaps Centrifugo's broker; config only |
@@ -533,3 +534,57 @@ changes.
 
 Known limitations, deliberate cuts and the next measurements are in
 [`docs/limitations-and-next-steps.md`](docs/limitations-and-next-steps.md).
+
+
+ 1. Free the ports and build the zip
+  cd ~/Documents/projects/ticker-watch-case-study
+  make down
+  make submit                    # runs submit-check first, writes solution.zip
+  unzip -l solution.zip | less   # no notes/, .run/, node_modules, dumps
+
+  2. The literal grader path, from the zip, not the repo
+  mkdir -p /tmp/grader && cd /tmp/grader
+  unzip -q ~/Documents/projects/ticker-watch-case-study/solution.zip
+  make up                        # nothing before it; first run builds images
+  Second terminal, in /tmp/grader:
+  make open-app
+  curl -s localhost:8000/health  # schema ok, price_sources_in_data ["api"]
+  Expect all six containers up and the price service logging catalog: 99 tickers from the vendor.
+
+  3. The product, in the browser
+  - Login user1 / password. A wrong password is rejected.
+  - The watchlist is already populated from demo.sql.
+  - Search by ticker (NVDA) and by name (apple). Add one. Remove one. No page reload needed.
+  - Prices tick. Watch for 15 seconds. During market hours a few change; after 16:00 ET nothing moves, which is expected.
+  - Reload the page: still logged in. Logout: back to the form.
+  - Optional: two tabs, same user. Add in one, the other picks it up on its next snapshot.
+  
+  4. Persistence across restart
+  - Add a ticker. In /tmp/grader: make down, then make up. Log in. The ticker is still there.
+  
+  5. Fresh volume reloads the demo, not leftovers
+  - make clean (drops volumes), make up. user1 has the original demo list again, not the ticker you added in step 4. That proves demo.sql is what loads.
+  
+  - Prices tick. Watch for 15 seconds. During market hours a few change; after 16:00 ET nothing moves, which is expected.
+  - Reload the page: still logged in. Logout: back to the form.
+  - Optional: two tabs, same user. Add in one, the other picks it up on its next snapshot.
+
+  4. Persistence across restart
+  - Add a ticker. In /tmp/grader: make down, then make up. Log in. The ticker is still there.
+
+  5. Fresh volume reloads the demo, not leftovers
+  - make clean (drops volumes), make up. user1 has the original demo list again, not the ticker you added in step 4. That proves demo.sql is what loads.
+
+  6. Tests and lint, back in the repo
+  cd ~/Documents/projects/ticker-watch-case-study
+  make up-detached && make migrate
+  make test                      # 82 passed
+  make lint
+
+  7. Read once as the reviewer
+  - README.md top to bottom. Every command in it should be one you just ran.
+  - Skim docs/measurements.md and docs/limitations-and-next-steps.md for anything that reads as process rather than result.
+
+  8. Clean up the scratch copy
+  cd /tmp/grader && make clean && cd / && rm -rf /tmp/grader
+  Its compose project is named grader, so its images and volumes are separate from the repo's.

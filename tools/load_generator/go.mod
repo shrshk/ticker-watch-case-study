@@ -1,4 +1,4 @@
-module github.com/albert-casestudy/loadgen
+module github.com/shrshk/ticker-watch-case-study/loadgen
 
 go 1.25.0
 

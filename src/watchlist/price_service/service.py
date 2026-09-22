@@ -37,9 +37,9 @@ import redis.exceptions
 
 from watchlist.modules.prices import prices_controller, prices_handler
 from watchlist.modules.securities import securities_controller
-from watchlist.price_service.sources.albert import AlbertSource
 from watchlist.price_service.sources.base import PriceSource
 from watchlist.price_service.sources.simulated import SimulatedSource
+from watchlist.price_service.sources.vendor import VendorSource
 from watchlist.shared import cache, db, metrics
 from watchlist.shared.logging import get_logger
 from watchlist.shared.settings import get_settings
@@ -137,7 +137,7 @@ class PriceService:
         rows: list[tuple[str, str]] = []
         if self._settings.price_source == "api":
             try:
-                probe = AlbertSource()
+                probe = VendorSource()
                 catalog = await probe.catalog()
                 await probe.aclose()
                 rows = sorted(catalog.items())
@@ -199,7 +199,7 @@ class PriceService:
 
     async def _build_source(self) -> PriceSource:
         if self._settings.price_source == "api":
-            return AlbertSource()
+            return VendorSource()
         return SimulatedSource(await self._starting_prices())
 
     async def _starting_prices(self) -> dict[str, float]:

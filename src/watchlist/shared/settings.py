@@ -9,9 +9,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Vendor API.
-    albert_api_key: str = ""
-    albert_api_base: str = "https://app.albert.com/casestudy"
+    # Vendor API. All three come from .env; the tree carries no default so the
+    # vendor's identity is configuration, not code.
+    vendor_api_key: str = ""
+    vendor_api_base: str = ""
+    vendor_api_key_header: str = "X-API-Key"
 
     # Datastores.
     postgres_dsn: str = "postgresql://postgres:postgres@db:5432/postgres"

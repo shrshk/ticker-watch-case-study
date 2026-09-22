@@ -1,6 +1,5 @@
 .git
 .idea
-archive
 client
 node_modules
 **/__pycache__
