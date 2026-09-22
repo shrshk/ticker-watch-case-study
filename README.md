@@ -530,5 +530,3 @@ changes.
 
 Known limitations, deliberate cuts and the next measurements are in
 [`docs/limitations-and-next-steps.md`](docs/limitations-and-next-steps.md).
-The lesson this build would pass on: a number is not evidence until the thing
-it summarises has been looked at directly.
