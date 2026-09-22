@@ -60,6 +60,7 @@ Small, understood, and left as they are with the reason.
 | `_` and `%` in a search query act as LIKE wildcards | `_` matches everything. | Harmless at 99 rows; escape them if the catalog grows. |
 | `make up` on a fresh volume without `db/demo.sql` | The price service waits up to 60s for `make migrate`, then exits and is restarted. | `make bootstrap` is the documented path and runs migrate; the shipped `demo.sql` makes the wait moot. |
 | Containers run as root | Standard for the base images used. | Case study scope. |
+| The vendor is a stand-in with in-process state | Restarting the `vendor` service restarts its walk from `seed/prices.csv`; stored `api` prices jump back once. | The original vendor was the case study's own API. The stand-in keeps the adapter, the one-call-per-tick discipline and the edge cases exercised with no external dependency. |
 | The load generator's client-side disconnect-code count is untrusted | It read zero while Centrifugo counted 155 slow disconnects. | The harness reports the broker's counter; fixing the client-side check buys nothing until something needs it. |
 
 ---

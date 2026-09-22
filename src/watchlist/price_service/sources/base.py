@@ -1,9 +1,10 @@
 """The price source interface.
 
-Two implementations, both required. The vendor is the real integration and
-proves the interface is not a toy. The simulator exists because the vendor
-cannot drive load scenarios, because equities are frozen outside market hours
-so a weekend demo shows nothing moving, and because a controlled comparison
+Two implementations, both required. The vendor adapter is the third-party
+integration - served in this repo by the bundled stand-in, which keeps the
+contract and its edge cases - and proves the interface is not a toy. The
+simulator exists because a paid vendor cannot drive load scenarios, because a
+real one is frozen outside market hours, and because a controlled comparison
 needs identical price movement on both sides of a run.
 """
 

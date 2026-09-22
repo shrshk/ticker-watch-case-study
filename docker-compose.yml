@@ -1,13 +1,12 @@
-# Core stack: postgres, redis, api, price-service, client.
+# Core stack: postgres, redis, vendor (quote API stand-in), api, price-service, client.
 # Centrifugo is the push transport behind the `push` profile, so the polling
 # version stays honestly standalone rather than push-minus-a-flag.
 
 x-python-env: &python-env
-  # Optional: only PRICE_SOURCE=api needs them, and the source adapter fails
-  # loudly if they are missing then. Requiring them here would stop a reviewer
-  # without a key from running the stack in simulated mode at all.
-  VENDOR_API_KEY: ${VENDOR_API_KEY:-}
-  VENDOR_API_BASE: ${VENDOR_API_BASE:-}
+  # Defaults point at the bundled `vendor` service. A real vendor with the
+  # same contract is these three values away; only PRICE_SOURCE=api uses them.
+  VENDOR_API_KEY: ${VENDOR_API_KEY:-dev-only-vendor-key}
+  VENDOR_API_BASE: ${VENDOR_API_BASE:-http://vendor:8003}
   VENDOR_API_KEY_HEADER: ${VENDOR_API_KEY_HEADER:-X-API-Key}
   POSTGRES_DSN: postgresql://postgres:postgres@db:5432/postgres
   REDIS_URL: redis://redis:6379/0
@@ -98,6 +97,30 @@ services:
       timeout: 5s
       retries: 12
 
+  # Stand-in for the third-party quote API. The product treats its vendor as a
+  # paid external service; this is that vendor for the repo. Same contract
+  # (catalog, batch prices, key header) and the same edge cases (a listed but
+  # unpriced ticker, 400 for the whole batch on one unknown symbol), so the
+  # adapter and the one-call-per-tick discipline are exercised for real. It is
+  # not the simulator: that bypasses the adapter, this goes through it.
+  vendor:
+    image: watchlist-api:local
+    build: .
+    hostname: vendor
+    environment: *python-env
+    command: uvicorn watchlist.vendor_mock.main:app --host 0.0.0.0 --port 8003
+    ports:
+      - "8003:8003"
+    volumes:
+      - ./src:/app/src
+      - ./seed:/app/seed
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8003/health').status==200 else 1)\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   # The only writer of prices anywhere in the system, and the only caller of
   # the vendor API - one call per tick, regardless of how many users exist.
   price-service:
@@ -123,6 +146,7 @@ services:
     depends_on:
       db: { condition: service_healthy }
       redis: { condition: service_healthy }
+      vendor: { condition: service_healthy }
 
   client:
     image: watchlist-client:local

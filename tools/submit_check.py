@@ -20,7 +20,7 @@ SUBMISSION_DEFAULTS = {
 
 env = pathlib.Path(".env")
 if not env.exists():
-    sys.exit(".env is missing; the reviewer needs the API key in it. Copy .env.example.")
+    sys.exit(".env is missing. Copy .env.example.")
 
 values = dict(
     line.split("=", 1)

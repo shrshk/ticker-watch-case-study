@@ -9,10 +9,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Vendor API. All three come from .env; the tree carries no default so the
-    # vendor's identity is configuration, not code.
-    vendor_api_key: str = ""
-    vendor_api_base: str = ""
+    # Vendor API. Defaults are the bundled stand-in (the `vendor` service); a
+    # real vendor with the same contract is these three values away.
+    vendor_api_key: str = "dev-only-vendor-key"
+    vendor_api_base: str = "http://vendor:8003"
     vendor_api_key_header: str = "X-API-Key"
 
     # Datastores.

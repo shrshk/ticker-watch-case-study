@@ -19,7 +19,7 @@ was deliberately not built, and where the measurements stop, is in
 ## Quick start
 
 ```bash
-cp .env.example .env        # fill in the VENDOR_API_* values from the case study email
+cp .env.example .env        # nothing to fill in; every default runs fully local
 make up                     # builds the images, starts every service
 make open-app               # http://localhost:3000  ->  user1 / password
 ```
@@ -39,15 +39,16 @@ explicit `migrate` and `createusers`. `make help` lists every target.
 | Centrifugo health / metrics | http://localhost:8001/health · /metrics |
 
 **Shipped defaults:** push transport, Redis as Centrifugo's engine, one
-Centrifugo node, the real vendor as price source, a single hot-reloading API
+Centrifugo node, the vendor API as price source, a single hot-reloading API
 process. Polling, NATS, extra nodes and multiple workers exist as toggles for
 the comparisons below, not as alternatives.
 
-**Markets are closed most of the time.** Outside trading hours the vendor
-returns the last close and nothing moves on screen — correct, and hard to
-review. `PRICE_SOURCE=simulated` in `.env` then `make restart` random-walks
-from the last real prices; the UI shows a `simulated prices` badge so nobody
-mistakes them for live data. The service reconciles stored prices itself on
+**Two ways to get prices.** `PRICE_SOURCE=api` goes through the vendor
+adapter to the bundled `vendor` service: a stand-in for the paid third-party
+quote API the design is built around, with the same contract and the same edge
+cases, walking prices from a captured snapshot. `PRICE_SOURCE=simulated` in
+`.env` then `make restart` walks the same prices in-process and bypasses the
+adapter; the UI shows a `simulated prices` badge. The service reconciles stored prices itself on
 the switch, either direction.
 
 **Editing `.env` or code:** `make restart`. Plain `docker compose restart`
@@ -78,7 +79,7 @@ packages `solution.zip`. See *Before you submit* at the end.
 ## Architecture
 
 ```
-                 Vendor API  (or the simulator)
+                 Vendor API  (bundled stand-in; or the simulator)
                        │  one call per 5s tick, all 99 tickers
                        ▼
                 price-service                 the only writer of prices,
@@ -99,6 +100,7 @@ packages `solution.zip`. See *Before you submit* at the end.
 | **Postgres** | users, securities, watchlists, membership, `latest_prices` — the source of truth | the realtime path |
 | **Redis** | read-through cache for the snapshot; Centrifugo's engine | authority for anything |
 | **price-service** | one tick loop: read source → detect change → write cache, upsert Postgres, publish | serving clients |
+| **vendor** | the third-party quote API's contract: catalog, batch prices, key header, its edge cases | the product — it stands in for a paid external service |
 | **Centrifugo** | connections, subscriptions, reconnects, fanout | business logic |
 | **React + Vite** | login and one screen, behind one transport-agnostic hook | — |
 
@@ -367,14 +369,15 @@ unindexed; two values do not justify a join.
 
 Each one: where it came from, and what would change if it were wrong.
 
-1. **The catalog is 99 tickers.** Measured against the vendor. The design assumed
-   ~10k. If it were 10k: one call still covers it (the endpoint takes the whole
+1. **The catalog is 99 tickers.** Measured against the case study's vendor and
+   carried into the bundled stand-in. The design assumed ~10k. If it were 10k: one call still covers it (the endpoint takes the whole
    list), search needs the `pg_trgm` indexes that today are inert, and the
    simulator's change ratio becomes the dominant load lever.
-2. **One vendor call covers the universe.** Measured: all 99 in one request,
-   ~180ms. Removes the design's "poll the union of watchlisted tickers" entirely.
-3. **`effective_at` is our observation time.** The vendor returns no
-   timestamp. If it did, the guards would compare vendor time and the
+2. **One vendor call covers the universe.** Measured against the original
+   vendor: all 99 in one request, ~180ms. Removes the design's "poll the union
+   of watchlisted tickers" entirely. The stand-in keeps that contract.
+3. **`effective_at` is our observation time.** The vendor returned no
+   timestamp and the stand-in does not either. If it did, the guards would compare vendor time and the
    source-switch reconciliation would need to account for clock skew.
 4. **Vendor call volume is constant.** One process, one call per
    `UPSTREAM_POLL_INTERVAL_SECONDS`, for any number of users — the answer to
@@ -460,8 +463,8 @@ behaviour:
 
 | variable | default | |
 |---|---|---|
-| `VENDOR_API_KEY` | — | required for `PRICE_SOURCE=api` |
-| `VENDOR_API_BASE` | — | the vendor's base URL; required for `PRICE_SOURCE=api` |
+| `VENDOR_API_KEY` | `dev-only-vendor-key` | what the adapter sends; the stand-in checks it |
+| `VENDOR_API_BASE` | `http://vendor:8003` | the bundled stand-in; any vendor with the same contract works |
 | `VENDOR_API_KEY_HEADER` | `X-API-Key` | header the key is sent in |
 | `PRICE_SOURCE` | `api` | `simulated` for out-of-hours demos and every benchmark |
 | `TRANSPORT` | `push` | `poll` is the comparison baseline |
@@ -549,7 +552,7 @@ Known limitations, deliberate cuts and the next measurements are in
   Second terminal, in /tmp/grader:
   make open-app
   curl -s localhost:8000/health  # schema ok, price_sources_in_data ["api"]
-  Expect all six containers up and the price service logging catalog: 99 tickers from the vendor.
+  Expect all seven containers up and the price service logging catalog: 99 tickers from the vendor.
 
   3. The product, in the browser
   - Login user1 / password. A wrong password is rejected.
