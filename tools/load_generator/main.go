@@ -1,9 +1,9 @@
-// Load generator for the stock watchlist case study.
+// Load generator for the stock watchlist service.
 //
 // Not part of the product. It shares no code with the services, builds
 // separately, and runs only with explicit arguments. It lives in this repo
-// because the measurements are the deliverable: a reviewer checking the
-// README's numbers should not have to clone a second repo, and a separate repo
+// because the measurements are the point: anyone checking the README's
+// numbers should not have to clone a second repo, and a separate repo
 // drifts from the API contract the first time an endpoint changes.
 //
 // Logical users and real connections are independent parameters. Logical users

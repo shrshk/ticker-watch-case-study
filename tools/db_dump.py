@@ -1,15 +1,14 @@
 """Dump the demo database - and refuse to dump a benchmark one.
 
-The scaffold's `make submit` said it dumped the database and never did; the
-volume also lives outside the project directory and, after the polling measurements, holds a
-million load-test users. This writes the *sensible* version: schema plus the
-demo state - the 99 securities, latest_prices, user1/user2 and their watchlists
-- to db/demo.sql, which Postgres loads automatically on a fresh volume via
-/docker-entrypoint-initdb.d. Refresh-token rows are excluded: sessions do not
-ship.
+The Postgres volume lives outside the project directory and, after the
+polling measurements, holds a million load-test users. This writes the
+*sensible* version: schema plus the demo state - the 99 securities,
+latest_prices, user1/user2 and their watchlists - to db/demo.sql, which
+Postgres loads automatically on a fresh volume via /docker-entrypoint-initdb.d.
+Refresh-token rows are excluded: sessions do not ship.
 
-Refuses if any load_user_* rows exist, the same way submit_check refuses a
-benchmark .env. A gigabyte of seeded rows in a submission would be a defect.
+Refuses if any load_user_* rows exist: a gigabyte of seeded rows in the demo
+dump would be a defect.
 """
 
 import pathlib
@@ -31,14 +30,14 @@ def psql(sql: str) -> str:
 load_users = int(psql("SELECT count(*) FROM users WHERE username LIKE 'load\\_user\\_%'"))
 if load_users:
     sys.exit(
-        f"refusing: {load_users:,} load-test users present. The demo dump ships to a reviewer;\n"
-        "run it against a fresh stack (make clean && make bootstrap), not a benchmark one."
+        f"refusing: {load_users:,} load-test users present. The demo dump seeds every\n"
+        "fresh clone; run it against a fresh stack (make clean && make bootstrap)."
     )
 
 sources = psql("SELECT string_agg(DISTINCT source, ',') FROM latest_prices")
 if "simulated" in (sources or ""):
     print(
-        f"warning: latest_prices holds simulated rows ({sources}); a reviewer starting with "
+        f"warning: latest_prices holds simulated rows ({sources}); a fresh start with "
         "PRICE_SOURCE=api will have them wiped on first tick, which is correct but untidy.",
         file=sys.stderr,
     )

@@ -1,6 +1,6 @@
 """Measure the database-side cost of the read paths at the current data size.
 
-Answers two of the case study's questions directly:
+Answers two of the project's questions directly:
 
   * Can Postgres support a million users and ten million watchlist rows?
   * What is watchlist snapshot latency at scale, cached and uncached?

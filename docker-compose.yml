@@ -39,7 +39,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       # Everything in db/ is loaded by the official image ONLY when the data
-      # directory is empty - a reviewer's first start gets the demo state; an
+      # directory is empty - a first start gets the demo state; an
       # existing volume is never touched. The whole directory is mounted, not
       # the file: a bind mount of a missing file becomes an empty directory
       # named demo.sql, which the entrypoint tries to run and dies on.

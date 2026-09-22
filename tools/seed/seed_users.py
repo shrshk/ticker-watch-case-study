@@ -135,7 +135,7 @@ async def pad_catalog(conn: asyncpg.Connection, target: int) -> int:
 
 def user_records(count: int, password_hash: str, offset: int) -> Iterator[tuple]:
     for i in range(offset + 1, offset + count + 1):
-        yield (f"load_user_{i}", f"load_user_{i}@casestudy.com", "Load", "User", password_hash)
+        yield (f"load_user_{i}", f"load_user_{i}@example.com", "Load", "User", password_hash)
 
 
 def item_records(

@@ -1,5 +1,5 @@
--- Initial schema. There is no migration framework here on purpose: the brief
--- asks that user data survive a restart, not that the schema evolve. This file
+-- Initial schema. There is no migration framework here on purpose: the
+-- requirement is that user data survive a restart, not that the schema evolve. This file
 -- is idempotent and applied by `make migrate`.
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;

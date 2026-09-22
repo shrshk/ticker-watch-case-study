@@ -264,7 +264,7 @@ class PriceService:
             HEARTBEAT.touch()
             if elapsed > interval:
                 # The one number to watch first: past this point the system is
-                # no longer meeting the brief, whatever else the dashboards say.
+                # no longer keeping its 5-second promise, whatever else the dashboards say.
                 logger.warning("tick took %.2fs, longer than the %.1fs interval", elapsed, interval)
             await asyncio.sleep(max(0.0, interval - elapsed))
 

@@ -7,7 +7,7 @@ system) and `CENTRIFUGO_HTTP_API_KEY` (what the price service publishes with).
 
 | file | engine / broker | what it means |
 |---|---|---|
-| `config.redis.json` | Redis engine, db 1 of the same Redis the price cache uses (db 0) | the default. Broker and cache share one event loop - the contention this case study measures. |
+| `config.redis.json` | Redis engine, db 1 of the same Redis the price cache uses (db 0) | the default. Broker and cache share one event loop - the contention this project measures. |
 | `config.nats.json` | memory engine, NATS broker | the experiment. Only the cache is on Redis; fanout moves to NATS. At-most-once, no history - fine, because clients re-snapshot on reconnect. |
 
 The `ticker` namespace: any authenticated client may subscribe (prices are not

@@ -1,4 +1,4 @@
-"""Create the demo users the case study README refers to: user1 and user2."""
+"""Create the demo users the README refers to: user1 and user2."""
 
 import asyncio
 import pathlib
@@ -12,8 +12,8 @@ from watchlist.modules.auth import auth_handler  # noqa: E402
 from watchlist.shared.settings import get_settings  # noqa: E402
 
 DEMO_USERS = [
-    ("user1", "password", "user1@casestudy.com", "User", "One"),
-    ("user2", "password", "user2@casestudy.com", "User", "Two"),
+    ("user1", "password", "user1@example.com", "User", "One"),
+    ("user2", "password", "user2@example.com", "User", "Two"),
 ]
 
 

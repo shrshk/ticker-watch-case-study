@@ -1,7 +1,7 @@
 # Stock Watchlist
 
-A stock watchlist service and client, built as a product engineering case
-study. Users log in, search stocks by ticker or company name, keep a watchlist,
+A stock watchlist service and client, built as an experiment in how a price
+service should talk to many clients at once. Users log in, search stocks by ticker or company name, keep a watchlist,
 and see prices update every 5 seconds — pushed over WebSockets, with a polling
 implementation kept alongside as the baseline it was measured against.
 
@@ -55,12 +55,11 @@ the switch, either direction.
 keeps old config and `up -d` keeps old code under a bind mount; `make restart`
 force-recreates and renews volumes, because both of those bit this project.
 
-**Submitting:** `make submit` refuses a `.env` left in benchmark mode and
-packages `solution.zip`. See *Before you submit* at the end.
-
 ---
 
-## The brief, and where each requirement is met
+## The problem, and where each requirement is met
+
+The requirements as the project took them, and where each one lives:
 
 | requirement | where |
 |---|---|
@@ -122,7 +121,7 @@ would drop whatever landed in the gap.
 `GET /watchlist` already returns membership and prices together, so polling
 is a fixed-phase 5-second timer on the client and no server work at all. It is
 simple, stateless, scales behind any load balancer, survives every proxy, and
-needs no reconnect logic. It satisfies the brief. It was built first, on
+needs no reconnect logic. It meets every requirement. It was built first, on
 purpose, so that push would be introduced as the answer to a measured limit
 rather than assumed.
 
@@ -340,9 +339,9 @@ cascades their tokens away, so a session ends within one access-token TTL.
 
 The access token doing no database read is what keeps every poll free of one.
 The same secret signs Centrifugo connection tokens, so `POST /realtime/token`
-is a claims transform, not a second auth system. The scaffold shipped "a login
-method with no authentication"; the brief only says *support login*. This was
-built because per-user watchlists are the premise, and because push needed a
+is a claims transform, not a second auth system. The requirement only says
+*support login*. Real authentication was built because per-user watchlists are
+the premise, and because push needed a
 signed token regardless.
 
 ---
@@ -369,7 +368,7 @@ unindexed; two values do not justify a join.
 
 Each one: where it came from, and what would change if it were wrong.
 
-1. **The catalog is 99 tickers.** Measured against the case study's vendor and
+1. **The catalog is 99 tickers.** Measured against the original vendor and
    carried into the bundled stand-in. The design assumed ~10k. If it were 10k: one call still covers it (the endpoint takes the whole
    list), search needs the `pg_trgm` indexes that today are inert, and the
    simulator's change ratio becomes the dominant load lever.
@@ -411,15 +410,15 @@ Each one: where it came from, and what would change if it were wrong.
 
 ## Deliberately not built
 
-- **Price history.** The brief asks for current prices and persisted *user*
+- **Price history.** The requirement is current prices and persisted *user*
   data. A partitioned `price_history` table would add a partitioning and
-  retention story that answers no question the case study asks. Extension:
+  retention story that answers no question this project asks. Extension:
   append-only, monthly partitions; enables charts, portfolio history,
   backtests.
 - **An identity provider.** Keycloak or any OIDC provider is where auth goes in
   production, replacing `users`, `/auth/login` and the shared HS256 secret with
   JWKS. Left out because it is a large container with a realm import to
-  bootstrap and answers nothing the brief asks.
+  bootstrap and answers nothing the requirements ask.
 - **Hot-channel sharding.** Measured as unnecessary below ~25k subscribers per
   node; kept as a discussion point with the numbers.
 - **Market-session behaviour.** Interesting product logic; dilutes the scaling
@@ -445,7 +444,7 @@ src/watchlist/
   shared/                      # settings, db pool, cache, metrics, logging, security, timeutil
 client/src/                    # usePrices dispatches on TRANSPORT to usePollPrices / usePushPrices
 centrifugo/                    # config.redis.json, config.nats.json
-tools/                         # migrate, seed, dump, submit-check, load generator (Go), bench harnesses
+tools/                         # migrate, seed, dump, load generator (Go), bench harnesses
 ```
 
 Routers contain no queries and no logic; handlers raise domain errors, never
@@ -522,72 +521,12 @@ single request. Compare numbers only within a batch.
 
 ---
 
-## Before you submit
+## Demo data
 
-```bash
-# .env: PRICE_SOURCE=api, TRANSPORT=push, BROKER=redis, UVICORN_ARGS= (empty)
-make restart
-make submit           # runs submit-check, then packages solution.zip
-```
-
-`submit-check` refuses a `.env` in benchmark mode because `.env` ships in the
-zip. `db/demo.sql` ships too and seeds a reviewer's first start; regenerate it
-with `make db-dump` against a stack with no load-test users if the demo state
+`db/demo.sql` seeds a fresh Postgres volume: the 99 securities, their last
+captured prices, two demo users and a populated watchlist. Regenerate it with
+`make db-dump` against a stack with no load-test users if the demo state
 changes.
 
 Known limitations, deliberate cuts and the next measurements are in
 [`docs/limitations-and-next-steps.md`](docs/limitations-and-next-steps.md).
-
-
- 1. Free the ports and build the zip
-  cd ~/Documents/projects/ticker-watch-case-study
-  make down
-  make submit                    # runs submit-check first, writes solution.zip
-  unzip -l solution.zip | less   # no notes/, .run/, node_modules, dumps
-
-  2. The literal grader path, from the zip, not the repo
-  mkdir -p /tmp/grader && cd /tmp/grader
-  unzip -q ~/Documents/projects/ticker-watch-case-study/solution.zip
-  make up                        # nothing before it; first run builds images
-  Second terminal, in /tmp/grader:
-  make open-app
-  curl -s localhost:8000/health  # schema ok, price_sources_in_data ["api"]
-  Expect all seven containers up and the price service logging catalog: 99 tickers from the vendor.
-
-  3. The product, in the browser
-  - Login user1 / password. A wrong password is rejected.
-  - The watchlist is already populated from demo.sql.
-  - Search by ticker (NVDA) and by name (apple). Add one. Remove one. No page reload needed.
-  - Prices tick. Watch for 15 seconds. During market hours a few change; after 16:00 ET nothing moves, which is expected.
-  - Reload the page: still logged in. Logout: back to the form.
-  - Optional: two tabs, same user. Add in one, the other picks it up on its next snapshot.
-  
-  4. Persistence across restart
-  - Add a ticker. In /tmp/grader: make down, then make up. Log in. The ticker is still there.
-  
-  5. Fresh volume reloads the demo, not leftovers
-  - make clean (drops volumes), make up. user1 has the original demo list again, not the ticker you added in step 4. That proves demo.sql is what loads.
-  
-  - Prices tick. Watch for 15 seconds. During market hours a few change; after 16:00 ET nothing moves, which is expected.
-  - Reload the page: still logged in. Logout: back to the form.
-  - Optional: two tabs, same user. Add in one, the other picks it up on its next snapshot.
-
-  4. Persistence across restart
-  - Add a ticker. In /tmp/grader: make down, then make up. Log in. The ticker is still there.
-
-  5. Fresh volume reloads the demo, not leftovers
-  - make clean (drops volumes), make up. user1 has the original demo list again, not the ticker you added in step 4. That proves demo.sql is what loads.
-
-  6. Tests and lint, back in the repo
-  cd ~/Documents/projects/ticker-watch-case-study
-  make up-detached && make migrate
-  make test                      # 82 passed
-  make lint
-
-  7. Read once as the reviewer
-  - README.md top to bottom. Every command in it should be one you just ran.
-  - Skim docs/measurements.md and docs/limitations-and-next-steps.md for anything that reads as process rather than result.
-
-  8. Clean up the scratch copy
-  cd /tmp/grader && make clean && cd / && rm -rf /tmp/grader
-  Its compose project is named grader, so its images and volumes are separate from the repo's.

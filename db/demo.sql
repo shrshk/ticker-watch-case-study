@@ -470,8 +470,8 @@ COPY public.securities (id, ticker, name, exchange, asset_type, is_synthetic, cr
 --
 
 COPY public.users (id, username, email, first_name, last_name, password_hash, created_at) FROM stdin;
-1	user1	user1@casestudy.com	User	One	$2b$12$MuwAa9VD8N1qTg9eAUbwUONeH7L6nH21xZLKm82Prh54LMdYJM.Fm	2026-09-21 22:55:45.950546+00
-2	user2	user2@casestudy.com	User	Two	$2b$12$fNjEXHSdqNB8CR5Zgb3em.TF49RkDlG3OXDu2YsrLpL4D1utJt3Hy	2026-09-21 22:55:46.196239+00
+1	user1	user1@example.com	User	One	$2b$12$MuwAa9VD8N1qTg9eAUbwUONeH7L6nH21xZLKm82Prh54LMdYJM.Fm	2026-09-21 22:55:45.950546+00
+2	user2	user2@example.com	User	Two	$2b$12$fNjEXHSdqNB8CR5Zgb3em.TF49RkDlG3OXDu2YsrLpL4D1utJt3Hy	2026-09-21 22:55:46.196239+00
 \.
 
 

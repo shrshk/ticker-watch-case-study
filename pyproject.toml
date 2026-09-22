@@ -1,7 +1,7 @@
 [project]
 name = "watchlist"
 version = "0.1.0"
-description = "Stock watchlist service - product engineering case study"
+description = "Stock watchlist service - an experiment in price fanout at scale"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",

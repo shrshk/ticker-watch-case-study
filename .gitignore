@@ -226,9 +226,6 @@ __marimo__/
 # Node
 node_modules/
 
-# Local data
-solution.zip
-
 # Benchmark artefacts
 .run/
 tools/load_generator/loadgen

@@ -1,9 +1,9 @@
 .DEFAULT_GOAL := help
-.PHONY: help build up down restart logs ps sh migrate createusers createsuperuser \
-        capture-prices reset-prices psql redis-cli open-app open-api test lint format submit-check \
+.PHONY: help build up down restart logs ps sh migrate createusers \
+        capture-prices reset-prices psql redis-cli open-app open-api test lint format \
         db-dump db-restore \
         seed-small seed-medium seed-million seed-clear db-bench load load-container \
-        clean submit bootstrap
+        clean bootstrap
 
 # Anything below can be overridden inline, e.g. `make up PRICE_SOURCE=simulated`.
 # `make up TRANSPORT=push` adds Centrifugo; `BROKER=nats` swaps its broker.
@@ -73,9 +73,6 @@ db-dump: ## Write db/demo.sql (schema + demo state; refuses if load-test users e
 db-restore: ## Load db/demo.sql into the running database (destructive: --clean)
 	$(COMPOSE) exec -T db psql -U postgres -q postgres < db/demo.sql
 	@echo "restored db/demo.sql"
-
-createsuperuser: createusers ## Alias kept for parity with the original scaffold
-	@echo "No Django admin in this stack; use the API or 'make psql'."
 
 psql: ## Open a Postgres shell
 	$(COMPOSE) exec db psql -U postgres postgres
@@ -147,19 +144,6 @@ format: ## Format
 
 clean: ## Stop the stack and delete its volumes
 	$(COMPOSE) down -v
-
-submit-check: ## Refuse to package a .env left in test/benchmark mode
-	python3 tools/submit_check.py
-
-submit: submit-check ## Package the project into solution.zip (runs submit-check first)
-	rm -f solution.zip
-	zip -r solution.zip . \
-	    -x '.git/*' '*/.git/*' '*node_modules/*' '*__pycache__/*' '*/.venv/*' '.venv/*' \
-	       '.run/*' '*/.run/*' 'notes/*' '*.pytest_cache/*' '*.ruff_cache/*' '*.idea/*' '*.DS_Store' \
-	       'solution.zip'
-	@echo "solution.zip: $$(unzip -l solution.zip | tail -1 | awk '{print $$2}') files, $$(du -h solution.zip | cut -f1)"
-	@if unzip -l solution.zip | grep -qE 'node_modules|\.git/|\.run/|\.venv/|__pycache__'; then \
-	    echo "REFUSING: solution.zip contains build or benchmark artefacts" >&2; rm -f solution.zip; exit 1; fi
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
