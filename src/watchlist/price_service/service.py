@@ -152,9 +152,20 @@ class PriceService:
         async with db.pool().acquire() as conn:
             if rows:
                 await securities_controller.upsert_many(conn, rows)
-            self._ticker_to_id = {
-                r["ticker"]: r["id"] for r in await securities_controller.all_tickers(conn)
-            }
+            # One unknown ticker fails the vendor's whole batch (400 "Invalid
+            # ticker"), so the api source prices only the vendor's listings.
+            vendor_only = self._settings.price_source == "api"
+            priced = await securities_controller.all_tickers(
+                conn, include_synthetic=not vendor_only
+            )
+            self._ticker_to_id = {r["ticker"]: r["id"] for r in priced}
+            if vendor_only:
+                total = len(await securities_controller.all_tickers(conn))
+                if total > len(priced):
+                    logger.warning(
+                        "catalog: %d synthetic securities excluded from vendor pricing",
+                        total - len(priced),
+                    )
         if not self._ticker_to_id:
             raise RuntimeError("no securities in the catalog; cannot price anything")
 

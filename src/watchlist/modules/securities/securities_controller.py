@@ -26,8 +26,20 @@ async def search(conn: asyncpg.Connection, query: str, limit: int = 20) -> list[
     return await conn.fetch(_SEARCH_SQL, query, limit)
 
 
-async def all_tickers(conn: asyncpg.Connection) -> list[asyncpg.Record]:
-    return await conn.fetch("SELECT id, ticker FROM securities ORDER BY ticker")
+async def all_tickers(
+    conn: asyncpg.Connection, *, include_synthetic: bool = True
+) -> list[asyncpg.Record]:
+    """Every security, or only the vendor-listed ones.
+
+    Synthetic rows pad the catalog for load tests. The vendor rejects the whole
+    price request if one unknown ticker is in it, so the api source must never
+    see them.
+    """
+    if include_synthetic:
+        return await conn.fetch("SELECT id, ticker FROM securities ORDER BY ticker")
+    return await conn.fetch(
+        "SELECT id, ticker FROM securities WHERE NOT is_synthetic ORDER BY ticker"
+    )
 
 
 async def get(conn: asyncpg.Connection, security_id: int) -> asyncpg.Record | None:
